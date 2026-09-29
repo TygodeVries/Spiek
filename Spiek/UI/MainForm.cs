@@ -241,11 +241,14 @@ namespace Spiek.UI
 
         public void HideNoConnections()
         {
-            // Already hidden
-            if (noConnectionsBox == null)
-                return;
+            form.Invoke(() =>
+            {
+                // Already hidden
+                if (noConnectionsBox == null)
+                    return;
 
-            form.Controls.Remove(noConnectionsBox);
+                form.Controls.Remove(noConnectionsBox);
+            });
         }
 
         private List<VRDevice> devices = new List<VRDevice>();
@@ -307,16 +310,19 @@ namespace Spiek.UI
 
         public void RecalculateLayout()
         {
-            form.BackColor = Color.White;
-            int i = 0;
-            foreach (DeviceWindow window in deviceWindows)
+            form.Invoke(() =>
             {
-                Vector4 pos = GetWindowRect(i);
-                window.Move((int)pos.X, (int)pos.Y, (int)pos.Z, (int)pos.W);
-                i++;
-            }
+                form.BackColor = Color.White;
+                int i = 0;
+                foreach (DeviceWindow window in deviceWindows)
+                {
+                    Vector4 pos = GetWindowRect(i);
+                    window.Move((int)pos.X, (int)pos.Y, (int)pos.Z, (int)pos.W);
+                    i++;
+                }
 
-            form.Refresh();
+                form.Refresh();
+            });
         }
 
         public void ManualIpConnect()

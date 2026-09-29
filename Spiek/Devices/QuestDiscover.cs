@@ -46,10 +46,16 @@ namespace Spiek.Devices
             while (true)
             {
                 UdpReceiveResult result = await broadcastClient.ReceiveAsync();
-                string message = Encoding.UTF8.GetString(result.Buffer).Trim();
 
-                OnMessage?.Invoke((result.RemoteEndPoint.Address.ToString(), message));
+                string message = Encoding.UTF8.GetString(result.Buffer).Trim();
+                string sender = result.RemoteEndPoint.Address.ToString();
+
+                _ = Task.Run(() =>
+                {
+                    OnMessage?.Invoke((sender, message));
+                });
             }
+
         }
     }
 }

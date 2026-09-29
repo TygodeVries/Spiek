@@ -156,65 +156,69 @@ public class QuestVRDevice : VRDevice
 
     public override void StartCast()
     {
-        Console.WriteLine("Starting Cast...");
-        if (State != DeviceState.Connected)
+        Thread thr = new Thread(() =>
         {
-            Console.WriteLine("Can not start stream if the device is not connected.");
-            return;
-        }
+            Console.WriteLine("Starting Cast...");
+            if (State != DeviceState.Connected)
+            {
+                Console.WriteLine("Can not start stream if the device is not connected.");
+                return;
+            }
 
-        int battery = GetBatteryLevel();
-        if (battery != -1 && battery <= 20)
-        {
-            MainForm.GetInstance().InfoAlert("Stream might not function since battery level is below 20%.");
-        }
+            int battery = GetBatteryLevel();
+            if (battery != -1 && battery <= 20)
+            {
+                MainForm.GetInstance().InfoAlert("Stream might not function since battery level is below 20%.");
+            }
 
-        Console.WriteLine($"Battery is {battery}.");
+            Console.WriteLine($"Battery is {battery}.");
 
-        (int x, int y, int width, int height)? size = GetCrop();
+            (int x, int y, int width, int height)? size = GetCrop();
 
-        if (size == null)
-        {
-            MainForm.GetInstance().InfoAlert("Could not optain display resolution required for casting.");
-            size = (0, 0, 1000, 500);
-        }
+            if (size == null)
+            {
+                MainForm.GetInstance().InfoAlert("Could not optain display resolution required for casting.");
+                size = (0, 0, 1000, 500);
+            }
 
-        string args = Program.settings
-                .Replace("%addr%", GetAddress())
-                .Replace("%width%", size.Value.width.ToString())
-                .Replace("%height%", size.Value.height.ToString())
-                .Replace("%x%", size.Value.x.ToString())
-                .Replace("%y%", size.Value.y.ToString());
+            string args = Program.settings
+                    .Replace("%addr%", GetAddress())
+                    .Replace("%width%", size.Value.width.ToString())
+                    .Replace("%height%", size.Value.height.ToString())
+                    .Replace("%x%", size.Value.x.ToString())
+                    .Replace("%y%", size.Value.y.ToString());
 
-        Console.WriteLine("Starting Casting Application...");
-        (Process? prc, string msg) = Command.RunGetPrc("programs/scrcpy.exe", args);
-        if (prc == null)
-        {
-            Fatal("Failed to start cast because: " + msg);
-            return;
-        }
+            Console.WriteLine("Starting Casting Application...");
+            (Process? prc, string msg) = Command.RunGetPrc("programs/scrcpy.exe", args);
+            if (prc == null)
+            {
+                Fatal("Failed to start cast because: " + msg);
+                return;
+            }
 
-        IntPtr childHandle = IntPtr.Zero;
-        Console.WriteLine("Waiting for window...");
-        for (int attempts = 0; attempts < 100 && childHandle == IntPtr.Zero; attempts++)
-        {
-            prc.Refresh();
-            childHandle = prc.MainWindowHandle;
+            IntPtr childHandle = IntPtr.Zero;
+            Console.WriteLine("Waiting for window...");
+            for (int attempts = 0; attempts < 100 && childHandle == IntPtr.Zero; attempts++)
+            {
+                prc.Refresh();
+                childHandle = prc.MainWindowHandle;
+                if (childHandle == IntPtr.Zero)
+                {
+                    Thread.Sleep(100);
+                }
+            }
+
             if (childHandle == IntPtr.Zero)
             {
-                Thread.Sleep(100);
+                Fatal("Could not obtain casting window. scrcpy did not open a window.");
+                return;
             }
-        }
 
-        if (childHandle == IntPtr.Zero)
-        {
-            Fatal("Could not obtain casting window. scrcpy did not open a window.");
-            return;
-        }
+            Console.WriteLine("Window found!");
+        });
 
-        Console.WriteLine("Window found!");
-
-        RunCastStarted(prc);
+        thr.Start();
+        // RunCastStarted(prc);
     }
 
 
