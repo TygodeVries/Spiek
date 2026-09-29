@@ -57,7 +57,6 @@ public class Program
 
         MainForm mainForm = new MainForm();
         mainForm.Setup();
-
         Console.ReadLine();
     }
 }

@@ -25,6 +25,8 @@ namespace Spiek.Devices
 
         public void Broadcast(string message)
         {
+            Console.WriteLine($"Broadcasting Message: '{message}'");
+
             if (broadcastClient == null)
                 throw new Exception("No broadcast available.");
 

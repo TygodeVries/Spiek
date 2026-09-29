@@ -41,8 +41,27 @@ namespace Spiek.UI
             form.Shown += (_, _) =>
             {
                 ShowNoConnections();
+
+                form.Invoke(() =>
+                {
+                    StartUpdate();
+                });
             };
             thr.Start();
+        }
+
+        private static System.Windows.Forms.Timer? updateTimer;
+        public static void StartUpdate()
+        {
+            updateTimer = new System.Windows.Forms.Timer();
+            updateTimer.Tick += new EventHandler(Update);
+            updateTimer.Interval = 5000;
+            updateTimer.Start();
+        }
+
+        private static void Update(object? sender, EventArgs e)
+        {
+            Program.questDiscover?.Broadcast("SPIEK_PING");
         }
 
         private ToolStripDropDownButton AddDropDown(
@@ -84,8 +103,10 @@ namespace Spiek.UI
                 }
             ));
 
-            AddDropDown(toolStrip, "Settings",
+            /*
+             * AddDropDown(toolStrip, "Settings",
                 ("Static Ip List", () => OpenStaticIpList()));
+            */
 
             AddDropDown(toolStrip, "Advanced",
                 ("Patch USB with auto startup", () => PatchUsb.Patch()));
