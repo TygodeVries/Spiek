@@ -1,0 +1,351 @@
+﻿using Spiek.UI;
+using Spiek.Utils;
+using System.Diagnostics;
+using System.Text.RegularExpressions;
+
+namespace Spiek.Devices;
+
+public class QuestVRDevice : VRDevice
+{
+    public string? Serial { get; private set; }
+    public string? Ip { get; private set; }
+    public int? Port { get; private set; }
+
+
+    /// <summary>
+    /// Used for checking duplication.
+    /// </summary>
+    /// <returns></returns>
+    public override string UniqueAddressId()
+    {
+        if (Serial != null)
+            return Serial;
+
+        return $"{Ip}:{Port}";
+    }
+    public QuestVRDevice(string serial)
+    {
+        this.Serial = serial;
+    }
+
+    public QuestVRDevice(string ip, int port)
+    {
+        this.Ip = ip;
+        this.Port = port;
+    }
+
+    public void ForceAddress(string ip, int port)
+    {
+        this.Ip = ip;
+        this.Port = port;
+    }
+
+    public static List<string>? GetUsbDevices()
+    {
+        (string msg, bool success) = Command.Run("adb", $"devices");
+
+        if (!success)
+        {
+            Console.WriteLine($"Could not get list of connected devices because {msg}");
+            return null;
+        }
+
+        string[] lines = msg.Split("\n"); // Split on enters.
+
+        int deviceCount = lines.Length - 3;
+
+        if (deviceCount == 0)
+        {
+            return new List<string>();
+        }
+
+        List<string> devices = new List<string>();
+        for (int i = 0; i < deviceCount; i++)
+        {
+            string line = lines[i + 1];
+
+            // Its an IP, not correct!
+            if (line.Contains('.'))
+            {
+                continue;
+            }
+
+            if (line == "not-found")
+            {
+                return new List<string>();
+            }
+
+            string[] args = line.Split('\t', StringSplitOptions.RemoveEmptyEntries);
+            string serial = args[0].Trim();
+            devices.Add(serial);
+        }
+
+        return devices;
+    }
+    public override void Connect()
+    {
+        SetDeviceState(DeviceState.Connecting);
+        string msg;
+        bool success;
+        // If the IP is null, we first need to optain that.
+        if (Ip == null)
+        {
+            Console.WriteLine("IP is null...");
+            if (Serial == null)
+                throw new Exception("Both device serial and IP are unknown. The connection can not be made.");
+
+            (msg, success) = Command.Run("adb", $"-s {Serial} shell ip route");
+
+            if (!success)
+            {
+                if (msg.Contains("not found"))
+                {
+                    Fatal($"adb could not find the USB connected device {Serial}. Are you sure its still plugged in?");
+                    return;
+                }
+
+                Fatal($"Something went wrong connecting to {Serial} device. msg: '{msg}'");
+                return;
+            }
+
+            string[] args = msg.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+            Ip = args[8];
+
+            const int DEBUG_PORT = 5555;
+
+            // Open the adb
+            (msg, success) = Command.Run("adb", $"-s {Serial} tcpip {DEBUG_PORT}");
+            Port = DEBUG_PORT;
+
+            // Check again incase someone removes the USB half-way
+            if (!success)
+            {
+                if (msg.Contains("not found"))
+                {
+                    Fatal($"adb could not find the USB connected device while setting DEBUG_PORT {Serial}. Are you sure its still plugged in?");
+                    return;
+                }
+
+                Fatal($"Something went wrong connecting to {Serial} device while setting DEBUG_PORT. msg: '{msg}'");
+                return;
+            }
+
+            // Wait for connection to finalize.
+            Thread.Sleep(500);
+        }
+
+
+        // Connect
+        (msg, success) = Command.Run("adb", $"connect {Ip}:{Port}");
+        if (!success)
+        {
+            Fatal($"Failed to connect to device because: {msg}");
+            return;
+        }
+
+        if (msg.Contains("cannot connect to"))
+        {
+            Fatal(msg);
+            return;
+        }
+
+        Thread.Sleep(500);
+
+        SetDeviceState(DeviceState.Connected);
+    }
+
+    public override void StartCast()
+    {
+        Console.WriteLine("Starting Cast...");
+        if (State != DeviceState.Connected)
+        {
+            Console.WriteLine("Can not start stream if the device is not connected.");
+            return;
+        }
+
+        int battery = GetBatteryLevel();
+        if (battery != -1 && battery <= 20)
+        {
+            MainForm.GetInstance().InfoAlert("Stream might not function since battery level is below 20%.");
+        }
+
+        Console.WriteLine($"Battery is {battery}.");
+
+        (int x, int y, int width, int height)? size = GetCrop();
+
+        if (size == null)
+        {
+            MainForm.GetInstance().InfoAlert("Could not optain display resolution required for casting.");
+            size = (0, 0, 1000, 500);
+        }
+
+        string args = Program.settings
+                .Replace("%addr%", GetAddress())
+                .Replace("%width%", size.Value.width.ToString())
+                .Replace("%height%", size.Value.height.ToString())
+                .Replace("%x%", size.Value.x.ToString())
+                .Replace("%y%", size.Value.y.ToString());
+
+        Console.WriteLine("Starting Casting Application...");
+        (Process? prc, string msg) = Command.RunGetPrc("programs/scrcpy.exe", args);
+        if (prc == null)
+        {
+            Fatal("Failed to start cast because: " + msg);
+            return;
+        }
+
+        IntPtr childHandle = IntPtr.Zero;
+        Console.WriteLine("Waiting for window...");
+        for (int attempts = 0; attempts < 100 && childHandle == IntPtr.Zero; attempts++)
+        {
+            prc.Refresh();
+            childHandle = prc.MainWindowHandle;
+            if (childHandle == IntPtr.Zero)
+            {
+                Thread.Sleep(100);
+            }
+        }
+
+        if (childHandle == IntPtr.Zero)
+        {
+            Fatal("Could not obtain casting window. scrcpy did not open a window.");
+            return;
+        }
+
+        Console.WriteLine("Window found!");
+
+        RunCastStarted(prc);
+    }
+
+
+    public bool ErrorIfNotConnected(string msg)
+    {
+        if (State != DeviceState.Connected)
+        {
+            Console.WriteLine("The device has to be connected.");
+            Console.WriteLine(msg);
+            return true;
+        }
+
+        return false;
+    }
+
+    public string GetAddress()
+    {
+        if (Ip == null && Serial == null)
+            throw new NullReferenceException("Both IP and Serial of device is unknown.");
+
+        if (Ip == null)
+            return Serial!;
+        return $"{Ip}:{Port}";
+    }
+
+    public string? SendCommand(string command, bool bypassConnection = false)
+    {
+        if (!bypassConnection)
+            ErrorIfNotConnected("Can not send commands to this device if its not connected.");
+
+        (string msg, bool success) = Command.Run("adb", $"-s {GetAddress()} {command}");
+        if (!success)
+        {
+            Disconnect();
+            return null;
+        }
+        return msg;
+    }
+
+    public override int GetBatteryLevel()
+    {
+        string? result = SendCommand("shell dumpsys battery");
+        if (result == null)
+            return -1;
+
+        int level = int.Parse(
+            Regex.Match(result, @"^\s*level:\s*(\d+)", RegexOptions.Multiline).Groups[1].Value
+        );
+
+        return level;
+    }
+
+    public (int x, int y, int width, int height)? GetCrop()
+    {
+        if (ErrorIfNotConnected("The device has to be connected to get its display resolution."))
+        {
+            return null;
+        }
+
+        (string msg, bool success) = Command.Run("scrcpy", $"--list-displays -s {GetAddress()}");
+        if (!success)
+        {
+            return null;
+        }
+
+        foreach (string line in msg.Split("\n"))
+        {
+            if (line.Trim().StartsWith("--display-id=0"))
+            {
+                Match match = Regex.Match(line.Trim(), @"\((\d+)x(\d+)\)");
+
+                if (!match.Success)
+                {
+                    return null;
+                }
+
+                int displayWidth = int.Parse(match.Groups[1].Value);
+                int displayHeight = int.Parse(match.Groups[2].Value);
+
+                // One eye = half the display width.
+                int eyeWidth = displayWidth / 2;
+
+                // Calculate the height required to maintain 16:9.
+                int cropHeight = (int)Math.Round(eyeWidth * 9.0 / 16.0);
+
+                // Center vertically.
+                int cropY = (displayHeight - cropHeight) / 2;
+
+                // Assuming the left eye.
+                int cropX = 0;
+
+                return (cropX, cropY, eyeWidth, cropHeight);
+            }
+        }
+
+        return null;
+    }
+
+
+    public string? GetMacAddress()
+    {
+        if (ErrorIfNotConnected("The device has to be connected to get its MAC address."))
+        {
+            return null;
+        }
+
+        string? result = SendCommand("shell ip addr show wlan0");
+        if (string.IsNullOrEmpty(result))
+            return null;
+
+        Match match = Regex.Match(
+            result,
+            @"([0-9A-Fa-f]{2}:){5}[0-9A-Fa-f]{2}",
+            RegexOptions.IgnoreCase
+        );
+
+        return match.Success ? match.Value : null;
+    }
+
+    public override bool IsScreenEnabled()
+    {
+        string? result = SendCommand("shell dumpsys power");
+        if (result == null)
+            return false;
+
+        bool on = Regex.IsMatch(
+            result,
+            @"mWakefulness=Awake",
+            RegexOptions.IgnoreCase
+        );
+
+        return on;
+    }
+}
