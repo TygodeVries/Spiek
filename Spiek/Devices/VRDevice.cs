@@ -18,6 +18,8 @@ public abstract class VRDevice
     {
         OnCastStarted?.Invoke(process);
     }
+
+    public abstract string GetDeviceSerial();
     public abstract void Connect();
     public abstract void StartCast();
     public abstract bool IsScreenEnabled();
@@ -32,6 +34,8 @@ public abstract class VRDevice
     public event Action<string>? OnFatal;
     public event Action? OnDisconnect;
 
+    public abstract void StopCast();
+    public abstract bool IsCasting();
     public void Disconnect()
     {
         Console.WriteLine("AHHHH I disconnected");

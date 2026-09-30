@@ -7,38 +7,6 @@ namespace Spiek.Devices;
 
 public class QuestVRDevice : VRDevice
 {
-    public string? Serial { get; private set; }
-    public string? Ip { get; private set; }
-    public int? Port { get; private set; }
-
-
-    /// <summary>
-    /// Used for checking duplication.
-    /// </summary>
-    /// <returns></returns>
-    public override string UniqueAddressId()
-    {
-        if (Serial != null)
-            return Serial;
-
-        return $"{Ip}:{Port}";
-    }
-    public QuestVRDevice(string serial)
-    {
-        this.Serial = serial;
-    }
-
-    public QuestVRDevice(string ip, int port)
-    {
-        this.Ip = ip;
-        this.Port = port;
-    }
-
-    public void ForceAddress(string ip, int port)
-    {
-        this.Ip = ip;
-        this.Port = port;
-    }
 
     public static List<string>? GetUsbDevices()
     {
@@ -82,6 +50,40 @@ public class QuestVRDevice : VRDevice
 
         return devices;
     }
+
+    public string? Serial { get; private set; }
+    public string? Ip { get; private set; }
+    public int? Port { get; private set; }
+
+
+    /// <summary>
+    /// Used for checking duplication.
+    /// </summary>
+    /// <returns></returns>
+    public override string UniqueAddressId()
+    {
+        if (Serial != null)
+            return Serial;
+
+        return $"{Ip}:{Port}";
+    }
+    public QuestVRDevice(string serial)
+    {
+        this.Serial = serial;
+    }
+
+    public QuestVRDevice(string ip, int port)
+    {
+        this.Ip = ip;
+        this.Port = port;
+    }
+
+    public void ForceAddress(string ip, int port)
+    {
+        this.Ip = ip;
+        this.Port = port;
+    }
+
     public override void Connect()
     {
         SetDeviceState(DeviceState.Connecting);
@@ -152,75 +154,109 @@ public class QuestVRDevice : VRDevice
         Thread.Sleep(500);
 
         SetDeviceState(DeviceState.Connected);
+
+        bool enabled = IsScreenEnabled();
+        Console.WriteLine(enabled);
+        if (!enabled)
+        {
+            Console.WriteLine($"[!] Connected with {GetAddress()} but the screen is not enabled.");
+        }
     }
 
+    private bool startingCast = false;
     public override void StartCast()
     {
+        if (startingCast)
+            return;
+
+        startingCast = true;
         Thread thr = new Thread(() =>
-        {
-            Console.WriteLine("Starting Cast...");
-            if (State != DeviceState.Connected)
             {
-                Console.WriteLine("Can not start stream if the device is not connected.");
-                return;
-            }
+                Console.WriteLine("Starting Cast...");
+                if (State != DeviceState.Connected)
+                {
+                    startingCast = false;
+                    Console.WriteLine("Can not start stream if the device is not connected.");
+                    return;
+                }
 
-            int battery = GetBatteryLevel();
-            if (battery != -1 && battery <= 20)
-            {
-                MainForm.GetInstance().InfoAlert("Stream might not function since battery level is below 20%.");
-            }
+                int battery = GetBatteryLevel();
+                if (battery != -1 && battery <= 20)
+                {
+                    MainForm.GetInstance().InfoAlert("Stream might not function since battery level is below 20%.");
+                }
 
-            Console.WriteLine($"Battery is {battery}.");
+                Console.WriteLine($"Battery is {battery}.");
 
-            (int x, int y, int width, int height)? size = GetCrop();
+                (int x, int y, int width, int height)? size = GetCrop();
 
-            if (size == null)
-            {
-                MainForm.GetInstance().InfoAlert("Could not optain display resolution required for casting.");
-                size = (0, 0, 1000, 500);
-            }
+                if (size == null)
+                {
+                    MainForm.GetInstance().InfoAlert("Could not optain display resolution required for casting.");
+                    size = (0, 0, 1000, 500);
+                }
 
-            string args = Program.settings
-                    .Replace("%addr%", GetAddress())
-                    .Replace("%width%", size.Value.width.ToString())
-                    .Replace("%height%", size.Value.height.ToString())
-                    .Replace("%x%", size.Value.x.ToString())
-                    .Replace("%y%", size.Value.y.ToString());
+                string args = Program.settings
+                        .Replace("%addr%", GetAddress())
+                        .Replace("%width%", size.Value.width.ToString())
+                        .Replace("%height%", size.Value.height.ToString())
+                        .Replace("%x%", size.Value.x.ToString())
+                        .Replace("%y%", size.Value.y.ToString());
 
-            Console.WriteLine("Starting Casting Application...");
-            (Process? prc, string msg) = Command.RunGetPrc("programs/scrcpy.exe", args);
-            if (prc == null)
-            {
-                Fatal("Failed to start cast because: " + msg);
-                return;
-            }
+                Console.WriteLine("Starting Casting Application...");
+                (Process? prc, string msg) = Command.RunGetPrc("programs/scrcpy.exe", args);
+                if (prc == null)
+                {
+                    startingCast = false;
+                    Fatal("Failed to start cast because: " + msg);
+                    return;
+                }
 
-            IntPtr childHandle = IntPtr.Zero;
-            Console.WriteLine("Waiting for window...");
-            for (int attempts = 0; attempts < 100 && childHandle == IntPtr.Zero; attempts++)
-            {
-                prc.Refresh();
-                childHandle = prc.MainWindowHandle;
+                IntPtr childHandle = IntPtr.Zero;
+                Console.WriteLine("Waiting for window...");
+                for (int attempts = 0; attempts < 100 && childHandle == IntPtr.Zero; attempts++)
+                {
+                    prc.Refresh();
+                    childHandle = prc.MainWindowHandle;
+                    if (childHandle == IntPtr.Zero)
+                    {
+                        Thread.Sleep(100);
+                    }
+                }
+
                 if (childHandle == IntPtr.Zero)
                 {
-                    Thread.Sleep(100);
+                    Fatal("Could not obtain casting window. scrcpy did not open a window.");
+                    startingCast = false;
+                    return;
                 }
-            }
 
-            if (childHandle == IntPtr.Zero)
-            {
-                Fatal("Could not obtain casting window. scrcpy did not open a window.");
-                return;
-            }
+                cast = prc;
 
-            Console.WriteLine("Window found!");
-        });
+                Console.WriteLine("Window found!");
+                startingCast = false;
+
+                RunCastStarted(cast);
+            });
 
         thr.Start();
-        // RunCastStarted(prc);
     }
 
+    private Process? cast = null;
+
+    public override bool IsCasting()
+    {
+        return !(cast == null || cast.HasExited);
+    }
+
+    public override void StopCast()
+    {
+        if (IsCasting())
+        {
+            cast?.Close();
+            cast = null;
+        }
+    }
 
     public bool ErrorIfNotConnected(string msg)
     {
@@ -344,12 +380,23 @@ public class QuestVRDevice : VRDevice
         if (result == null)
             return false;
 
-        bool on = Regex.IsMatch(
+        return Regex.IsMatch(
             result,
-            @"mWakefulness=Awake",
+            @"Display Power:.*state=ON",
             RegexOptions.IgnoreCase
         );
-
-        return on;
     }
+
+    public override string GetDeviceSerial()
+    {
+        string? result = SendCommand("shell getprop ro.serialno");
+
+        if (!string.IsNullOrWhiteSpace(result))
+            return result.Trim();
+
+        result = SendCommand("shell getprop ro.boot.serialno");
+
+        return result?.Trim() ?? string.Empty;
+    }
+
 }

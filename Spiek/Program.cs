@@ -56,7 +56,6 @@ public class Program
         Application.SetCompatibleTextRenderingDefault(false);
 
         MainForm mainForm = new MainForm();
-        mainForm.Setup();
         Console.ReadLine();
     }
 }

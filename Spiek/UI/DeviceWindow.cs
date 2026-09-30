@@ -5,7 +5,7 @@ namespace Spiek.UI;
 
 using Timer = System.Windows.Forms.Timer;
 
-public class DeviceWindow
+public class DeviceWindow : Form
 {
     [DllImport("user32.dll", SetLastError = true)]
     private static extern IntPtr SetParent(IntPtr hWndChild, IntPtr hWndNewParent);
@@ -18,8 +18,6 @@ public class DeviceWindow
 
     [DllImport("user32.dll", SetLastError = true)]
     private static extern bool MoveWindow(IntPtr hWnd, int X, int Y, int nWidth, int nHeight, bool bRepaint);
-
-    public Overlay? Overlay;
     private const int GWL_STYLE = -16;
     private const int WS_CHILD = 0x40000000;
     private const int WS_VISIBLE = 0x10000000;
@@ -27,227 +25,136 @@ public class DeviceWindow
     private const int WS_CAPTION = 0x00C00000;
     private const int WS_THICKFRAME = 0x00040000;
 
-    private readonly Form form;
-    private IntPtr childHandle = IntPtr.Zero;
+    private Process? castingProcess = null;
 
     public VRDevice Device { get; }
 
     public DeviceWindow(VRDevice device)
     {
         Device = device;
+        TopLevel = false;
+
+        // Setup events
         Device.OnCastStarted += OnCastStart;
+        Resize += (s, e) => SyncChilds();
+        LocationChanged += (s, e) => SyncChilds();
 
-        form = new Form
-        {
-            TopLevel = false,
-            FormBorderStyle = FormBorderStyle.None,
-            BackColor = Color.Black
-        };
+        BackColor = Color.DarkRed;
 
-        int currentParentStyle = GetWindowLong(form.Handle, GWL_STYLE);
-        SetWindowLong(form.Handle, GWL_STYLE, currentParentStyle);
-
-        form.Show();
-        form.Resize += (s, e) => SyncChilds();
-        form.LocationChanged += (s, e) => SyncChilds();
-
-        form.Resize += (_, _) =>
-        {
-            if (form.WindowState == FormWindowState.Minimized)
-            {
-                Overlay?.Hide();
-            }
-            else
-            {
-                Overlay?.Show();
-            }
-        };
     }
 
-    public Form GetForm() => form;
-
-    public Color RandomColor()
+    public Color GetColor(string name)
     {
-        Color[] colors = new Color[]
-        {
-            Color.Red,
-            Color.Green,
-            Color.Blue,
-            Color.Yellow,
-            Color.Pink
-        };
+        Color color = Color.FromName(name);
 
-        return colors[Random.Shared.Next(0, colors.Length)];
+        if (!color.IsKnownColor)
+        {
+            return Color.Black;
+        }
+
+        return color;
     }
 
-    private Process? castingPrc;
+    public void ApplyVisualFormat()
+    {
+        int style = GetWindowLong(Handle, GWL_STYLE);
+
+        style |= WS_CHILD | WS_VISIBLE;
+        style &= ~WS_POPUP;
+        style &= ~WS_CAPTION;
+        style &= ~WS_THICKFRAME;
+
+        SetWindowLong(Handle, GWL_STYLE, style);
+    }
+
+
     public void OnCastStart(Process prc)
     {
-        childHandle = prc.MainWindowHandle; ;
-        castingPrc = prc;
+        castingProcess = prc;
 
-        int currentStyle = GetWindowLong(childHandle, GWL_STYLE);
+        IntPtr window = castingProcess.MainWindowHandle;
+
+        // Setup window style (hide borders)
+        int currentStyle = GetWindowLong(window, GWL_STYLE);
         int newStyle = (currentStyle | WS_CHILD | WS_VISIBLE) & ~WS_POPUP & ~WS_CAPTION & ~WS_THICKFRAME;
+        SetWindowLong(castingProcess.MainWindowHandle, GWL_STYLE, newStyle);
 
+        // Make window parent of this form
+        SetParent(castingProcess.MainWindowHandle, Handle);
 
-        SetWindowLong(childHandle, GWL_STYLE, newStyle);
-        SetParent(childHandle, form.Handle);
-
-        const bool ENABLE_OVERLAY = true;
-
-        if (ENABLE_OVERLAY)
-        {
-            Overlay = new Overlay();
-
-            Overlay.Show();
-            Overlay.BringToFront();
-        }
-
-        SyncChilds();
-
-
+        // 
         MainForm.GetInstance().RecalculateLayout();
 
-        StartUpdate();
+        // Move the casting window to the correct position
+        SyncChilds();
+    }
 
-        form.Invoke(() =>
+    /*
+     *  Handle updates
+     */
+    private Timer? updateTimer;
+    public void StartUpdateTimer()
+    {
+        MainForm.GetInstance().Invoke(() =>
         {
-            form.BackColor = RandomColor();
+            updateTimer = new Timer
+            {
+                Interval = 10_000
+            };
+
+            updateTimer.Tick += Update;
+            updateTimer.Start();
         });
     }
-
-    private Timer? updateTimer;
-    public void StartUpdate()
-    {
-        updateTimer = new Timer();
-        updateTimer.Tick += new EventHandler(Update);
-        updateTimer.Interval = 5000;
-        updateTimer.Start();
-    }
-
     private void Update(object? sender, EventArgs e)
     {
-        Console.WriteLine(Device.GetBatteryLevel());
-
-        if (castingPrc == null || castingPrc.HasExited)
-        {
-            Device.StartCast();
-        }
-
         if (Device.IsScreenEnabled())
         {
-            SetAwake();
+            if (!Device.IsCasting())
+                Device.StartCast();
         }
         else
         {
-            SetSleeping();
+            if (Device.IsCasting())
+                Device.StopCast();
         }
-    }
-
-    private PictureBox? statusImage;
-
-    public void SetSleeping()
-    {
-        castingPrc?.Kill();
-        Overlay?.Close();
-        if (statusImage != null)
-            return;
-
-        Console.WriteLine("Enabeling Sleep mode...");
-
-        if (!form.IsDisposed)
-            form.Invoke(() =>
-            {
-                statusImage = new PictureBox()
-                {
-                    Image = new Bitmap("images/sleep.gif"),
-                    Dock = DockStyle.Fill,
-                    SizeMode = PictureBoxSizeMode.Zoom
-                };
-
-                statusImage.BringToFront();
-
-                if (!form.IsDisposed)
-                    form.Controls.Add(statusImage);
-            });
-    }
-
-    public void SetAwake()
-    {
-        if (statusImage == null)
-            return;
-
-        Console.WriteLine("Waking up...");
-
-        form.Invoke(() =>
-        {
-            form.Controls.Remove(statusImage);
-            statusImage = null;
-
-            SyncChilds();
-        });
-
-        Device.StartCast();
     }
 
     private void SyncChilds()
     {
-        if (childHandle != IntPtr.Zero)
+        // If the casting program exists
+        if (IsCasting)
         {
+            // We fill the whole form, then another app will resize this form.
             MoveWindow(
-                childHandle,
+                castingProcess!.Handle,
                 0,
                 0,
-                form.ClientSize.Width,
-                form.ClientSize.Height,
+                ClientSize.Width,
+                ClientSize.Height,
                 true
             );
         }
-
-        if (Overlay != null)
-        {
-            const int Offset = 30;
-
-
-            Size size = form.ClientSize;
-            size.Height -= Offset;
-
-            Point point = form.PointToScreen(Point.Empty);
-            point.Y += Offset;
-
-            Overlay.Size = size;
-            Overlay.Location = point;
-            Overlay.Refresh();
-        }
     }
 
+    public bool IsCasting => castingProcess != null && !castingProcess.HasExited && castingProcess.MainWindowHandle != IntPtr.Zero;
 
     public void Move(int x, int y, int width, int height)
     {
-        form.Invoke(() =>
+        Invoke(() =>
         {
-            form.Location = new Point(x, y);
-            form.Size = new Size(width, height);
-            form.Refresh();
+            Location = new Point(x, y);
+            Size = new Size(width, height);
+            Refresh();
             SyncChilds();
         });
     }
 
-    public void Close()
+    public new void Close()
     {
-        if (!form.IsDisposed)
-            form.Invoke(() =>
-            {
-                form.Close();
-                Overlay?.Close();
-            });
+        if (IsCasting)
+            castingProcess?.Close();
 
-
-
-        if (castingPrc != null)
-        {
-            castingPrc.Close();
-            castingPrc = null;
-        }
+        base.Close();
     }
 }

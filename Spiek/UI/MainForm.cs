@@ -31,23 +31,23 @@ namespace Spiek.UI
 
             form.Focus();
 
-            Thread thr = new Thread(() =>
-            {
-                Application.Run(form);
-            });
-
             form.Resize += (_, _) => RecalculateLayout();
             form.Move += (_, _) => RecalculateLayout();
             form.Shown += (_, _) =>
             {
-                ShowNoConnections();
+                Setup();
+
+                //ShowNoConnections();
 
                 form.Invoke(() =>
                 {
+
+
                     StartUpdate();
                 });
             };
-            thr.Start();
+
+            Application.Run(form);
         }
 
         private static System.Windows.Forms.Timer? updateTimer;
@@ -239,45 +239,27 @@ namespace Spiek.UI
             AddDevice(new QuestVRDevice(device));
         }
 
-
-        private PictureBox? noConnectionsBox = null;
-        public void ShowNoConnections()
-        {
-            // Already showing
-            if (noConnectionsBox != null)
-                return;
-
-            form.Invoke(() =>
-            {
-                noConnectionsBox = new PictureBox()
-                {
-                    Image = new Bitmap("images/no-headsets.png"),
-                    Dock = DockStyle.Fill,
-                    SizeMode = PictureBoxSizeMode.Zoom
-                };
-
-                form.Controls.Add(noConnectionsBox);
-            });
-        }
-
-        public void HideNoConnections()
-        {
-            form.Invoke(() =>
-            {
-                // Already hidden
-                if (noConnectionsBox == null)
-                    return;
-
-                form.Controls.Remove(noConnectionsBox);
-            });
-        }
-
         private List<VRDevice> devices = new List<VRDevice>();
 
         public void AddDevice(VRDevice vrDevice)
         {
+            // Device connection can happen outside UI thread
+            if (vrDevice.State != DeviceState.Connected)
+                vrDevice.Connect();
+
+            form.Invoke(() =>
+            {
+                AddDeviceWindow(vrDevice);
+            });
+        }
+
+        private void AddDeviceWindow(VRDevice vrDevice)
+        {
             foreach (VRDevice other in devices)
             {
+                if (other == null)
+                    continue;
+
                 if (other.UniqueAddressId() == vrDevice.UniqueAddressId())
                 {
                     Console.WriteLine("[WARN] Device already connected");
@@ -287,47 +269,34 @@ namespace Spiek.UI
 
             devices.Add(vrDevice);
 
-            vrDevice.OnFatal += (msg) =>
-            {
-                ErrorAlert($"Vr Device had an error: {msg}");
-                vrDevice.Disconnect();
-            };
-
-
-
             DeviceWindow deviceWindow = new DeviceWindow(vrDevice);
             deviceWindows.Add(deviceWindow);
+
+            form.Controls.Add(deviceWindow);
+            deviceWindow.Show();
+
             //HideNoConnections();
+            RecalculateLayout();
+            deviceWindow.ApplyVisualFormat();
 
             vrDevice.OnDisconnect += () =>
             {
-                deviceWindows.Remove(deviceWindow);
-                deviceWindow.Close();
-                devices.Remove(vrDevice);
-                if (deviceWindows.Count == 0)
+                form.Invoke(() =>
                 {
-                    ShowNoConnections();
-                }
+                    deviceWindows.Remove(deviceWindow);
+                    devices.Remove(vrDevice);
+
+                    deviceWindow.Close();
+
+                    if (deviceWindows.Count == 0)
+                    {
+                        //ShowNoConnections();
+                    }
+                });
             };
-
-            if (vrDevice.State != DeviceState.Connected)
-            {
-                vrDevice.Connect();
-            }
-
-            if (vrDevice.State == DeviceState.Connected)
-            {
-                vrDevice.StartCast();
-            }
-
-            HideNoConnections();
-            RecalculateLayout();
-
-            form.Invoke(() =>
-            {
-                form.Controls.Add(deviceWindow.GetForm());
-            });
         }
+
+
 
         public void RecalculateLayout()
         {
