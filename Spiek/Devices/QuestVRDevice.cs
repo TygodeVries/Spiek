@@ -166,6 +166,8 @@ public class QuestVRDevice : VRDevice
     private bool startingCast = false;
     public override void StartCast()
     {
+
+
         if (startingCast)
             return;
 
@@ -226,9 +228,20 @@ public class QuestVRDevice : VRDevice
 
                 if (childHandle == IntPtr.Zero)
                 {
-                    Fatal("Could not obtain casting window. scrcpy did not open a window.");
-                    startingCast = false;
-                    return;
+                    try
+                    {
+                        Fatal("Could not obtain casting window. scrcpy did not open a window.");
+                        startingCast = false;
+                        prc.Kill();
+                        prc.Dispose();
+                        cast = null;
+                        return;
+                    }
+                    catch (Exception e)
+                    {
+                        MainForm.GetInstance().ErrorAlert("SHIT ITS BROKEN AGAIN! " + e);
+                        return;
+                    }
                 }
 
                 cast = prc;
@@ -246,14 +259,22 @@ public class QuestVRDevice : VRDevice
 
     public override bool IsCasting()
     {
-        return !(cast == null || cast.HasExited);
+        try
+        {
+            return !(cast == null || cast.HasExited);
+        }
+        catch (Exception e)
+        {
+            return false;
+        }
     }
 
     public override void StopCast()
     {
+        cast?.Close();
+
         if (IsCasting())
         {
-            cast?.Close();
             cast = null;
         }
     }
@@ -264,6 +285,8 @@ public class QuestVRDevice : VRDevice
         {
             Console.WriteLine("The device has to be connected.");
             Console.WriteLine(msg);
+
+            Disconnect();
             return true;
         }
 
@@ -382,9 +405,10 @@ public class QuestVRDevice : VRDevice
 
         return Regex.IsMatch(
             result,
-            @"Display Power:.*state=ON",
-            RegexOptions.IgnoreCase
+            @"^\s*mWakefulness\s*=\s*Awake\s*$",
+            RegexOptions.IgnoreCase | RegexOptions.Multiline
         );
+
     }
 
     public override string GetDeviceSerial()

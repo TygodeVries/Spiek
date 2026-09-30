@@ -22,7 +22,7 @@ public class Program
      * Allow running adb
      * adb shell pm grant dev.thesheep.spiek android.permission.WRITE_SECURE_SETTINGS
      */
-    public static string settings = "--stay-awake --keep-active --no-audio -b 6M --crop %width%:%height%:%x%:%y% --video-codec=h264 --max-size=800 --max-fps=20 --window-title \"Quest\" -s %addr%";
+    public static string settings = "--stay-awake --keep-active --no-audio -b 6M --crop %width%:%height%:%x%:%y% --video-codec=h264 --max-size=400 --max-fps=20 --window-title \"Quest\" -s %addr%";
     public static QuestDiscover? questDiscover;
     public static void Main(string[] args)
     {

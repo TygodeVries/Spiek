@@ -36,16 +36,15 @@ namespace Spiek.UI
             form.Shown += (_, _) =>
             {
                 Setup();
-
-                //ShowNoConnections();
+                ShowNoConnections();
 
                 form.Invoke(() =>
                 {
-
-
                     StartUpdate();
+                    form.BackColor = Color.Black;
                 });
             };
+
 
             Application.Run(form);
         }
@@ -109,7 +108,19 @@ namespace Spiek.UI
             */
 
             AddDropDown(toolStrip, "Advanced",
-                ("Patch USB with auto startup", () => PatchUsb.Patch()));
+                ("Power-off All", () =>
+                {
+                    foreach (VRDevice device in devices)
+                    {
+                        if (device is QuestVRDevice quest)
+                        {
+                            quest.SendCommand("shell reboot -p");
+                        }
+                    }
+                }
+            ),
+                ("Patch USB with auto startup", () => PatchUsb.Patch())
+                );
 
             AddDropDown(toolStrip, "About",
                 ("Version", () => Popup("Sπk is on version 1.0")),
@@ -239,21 +250,42 @@ namespace Spiek.UI
             AddDevice(new QuestVRDevice(device));
         }
 
-        private List<VRDevice> devices = new List<VRDevice>();
 
-        public void AddDevice(VRDevice vrDevice)
+        private PictureBox? noConnectionsBox = null;
+        public void ShowNoConnections()
         {
-            // Device connection can happen outside UI thread
-            if (vrDevice.State != DeviceState.Connected)
-                vrDevice.Connect();
+            // Already showing
+            if (noConnectionsBox != null)
+                return;
 
             form.Invoke(() =>
             {
-                AddDeviceWindow(vrDevice);
+                noConnectionsBox = new PictureBox()
+                {
+                    Image = new Bitmap("images/no-headsets.png"),
+                    Dock = DockStyle.Fill,
+                    SizeMode = PictureBoxSizeMode.Zoom
+                };
+
+                form.Controls.Add(noConnectionsBox);
             });
         }
 
-        private void AddDeviceWindow(VRDevice vrDevice)
+        public void HideNoConnections()
+        {
+            form.Invoke(() =>
+            {
+                // Already hidden
+                if (noConnectionsBox == null)
+                    return;
+
+                form.Controls.Remove(noConnectionsBox);
+            });
+        }
+
+        private List<VRDevice> devices = new List<VRDevice>();
+
+        public void AddDevice(VRDevice vrDevice)
         {
             foreach (VRDevice other in devices)
             {
@@ -267,6 +299,18 @@ namespace Spiek.UI
                 }
             }
 
+            // Device connection can happen outside UI thread
+            if (vrDevice.State != DeviceState.Connected)
+                vrDevice.Connect();
+
+            form.Invoke(() =>
+            {
+                AddDeviceWindow(vrDevice);
+            });
+        }
+
+        private void AddDeviceWindow(VRDevice vrDevice)
+        {
             devices.Add(vrDevice);
 
             DeviceWindow deviceWindow = new DeviceWindow(vrDevice);
@@ -275,7 +319,7 @@ namespace Spiek.UI
             form.Controls.Add(deviceWindow);
             deviceWindow.Show();
 
-            //HideNoConnections();
+            HideNoConnections();
             RecalculateLayout();
             deviceWindow.ApplyVisualFormat();
 
@@ -289,9 +333,7 @@ namespace Spiek.UI
                     deviceWindow.Close();
 
                     if (deviceWindows.Count == 0)
-                    {
-                        //ShowNoConnections();
-                    }
+                        ShowNoConnections();
                 });
             };
         }
@@ -302,7 +344,7 @@ namespace Spiek.UI
         {
             form.Invoke(() =>
             {
-                form.BackColor = Color.White;
+                form.BackColor = Color.Black;
                 int i = 0;
                 foreach (DeviceWindow window in deviceWindows)
                 {
