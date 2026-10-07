@@ -44,6 +44,59 @@ public class Command
         return (output, true);
     }
 
+    public static async Task<(string Output, bool Success)> RunAsync(string cmd, string args)
+    {
+        Console.WriteLine($"-> {cmd} {args}");
+
+        using var process = new Process();
+
+        process.StartInfo.FileName = Solve(cmd);
+        process.StartInfo.Arguments = args;
+
+        process.StartInfo.UseShellExecute = false;
+        process.StartInfo.CreateNoWindow = true;
+
+        process.StartInfo.RedirectStandardOutput = true;
+        process.StartInfo.RedirectStandardError = true;
+
+        try
+        {
+            process.Start();
+        }
+        catch (System.ComponentModel.Win32Exception ex)
+        {
+            Console.WriteLine(
+                $"Could not start '{cmd}': {ex.Message}");
+
+            return (
+                $"Could not start '{cmd}': {ex.Message}",
+                false);
+        }
+
+        Task<string> outputTask =
+            process.StandardOutput.ReadToEndAsync();
+
+        Task<string> errorTask =
+            process.StandardError.ReadToEndAsync();
+
+        await process.WaitForExitAsync();
+
+        string output = await outputTask;
+        string error = await errorTask;
+
+        if (process.ExitCode != 0)
+        {
+            Console.WriteLine(
+                $"Command '{cmd}' with arguments '{args}' " +
+                $"failed (exit code {process.ExitCode}):\n{error}");
+
+            return (error, false);
+        }
+
+        return (output, true);
+    }
+
+
     public static (Process?, string) RunGetPrc(string cmd, string args)
     {
         Process process = new Process();

@@ -1,44 +1,14 @@
 ﻿using Spiek.Devices;
 using System.Diagnostics;
-using System.Runtime.InteropServices;
 namespace Spiek.UI;
 
 using Timer = System.Windows.Forms.Timer;
 
 public class DeviceWindow : Form
 {
-    [DllImport("user32.dll", SetLastError = true)]
-    private static extern IntPtr SetParent(IntPtr hWndChild, IntPtr hWndNewParent);
-
-    [DllImport("user32.dll", SetLastError = true)]
-    private static extern int GetWindowLong(IntPtr hWnd, int nIndex);
-
-    [DllImport("user32.dll", SetLastError = true)]
-    private static extern int SetWindowLong(IntPtr hWnd, int nIndex, int dwNewLong);
-
-    [DllImport("user32.dll", SetLastError = true)]
-    private static extern bool MoveWindow(
-        IntPtr hWnd,
-        int X,
-        int Y,
-        int nWidth,
-        int nHeight,
-        bool bRepaint
-    );
-
-    private const int GWL_STYLE = -16;
-    private const int WS_CHILD = 0x40000000;
-    private const int WS_VISIBLE = 0x10000000;
-    private const int WS_POPUP = unchecked((int)0x80000000);
-    private const int WS_CAPTION = 0x00C00000;
-    private const int WS_THICKFRAME = 0x00040000;
-
     private Process? castingProcess = null;
     private Timer? updateTimer;
 
-    // Status controls
-    private readonly Label castingDisabledLabel;
-    private readonly Label batteryPercentageLabel;
 
     public VRDevice Device { get; }
 
@@ -48,62 +18,42 @@ public class DeviceWindow : Form
         TopLevel = false;
         BackColor = Color.Black;
 
-        // Container for the status information
-        var statusPanel = new Panel
-        {
-            Dock = DockStyle.Fill,
-            BackColor = Color.Black
-        };
-
-        // Display disabled text
-        castingDisabledLabel = new Label
-        {
-            Text = "Display is not enabled.",
-            AutoSize = true,
-            ForeColor = Color.White,
-            BackColor = Color.Black,
-            Font = new Font("Segoe UI", 20f, FontStyle.Regular)
-        };
-
-        // Battery percentage
-        batteryPercentageLabel = new Label
-        {
-            Text = "Battery: ??%",
-            AutoSize = true,
-            ForeColor = Color.White,
-            BackColor = Color.Black,
-            Font = new Font("Segoe UI", 14f, FontStyle.Regular)
-        };
-
-        statusPanel.Controls.Add(castingDisabledLabel);
-        statusPanel.Controls.Add(batteryPercentageLabel);
-
-        Controls.Add(statusPanel);
-
-        // Center the status text and battery percentage
-        statusPanel.Resize += (s, e) =>
-        {
-            int centerX = statusPanel.ClientSize.Width / 2;
-            int centerY = statusPanel.ClientSize.Height / 2;
-
-            castingDisabledLabel.Location = new Point(
-                centerX - (castingDisabledLabel.Width / 2),
-                centerY - 30
-            );
-
-            batteryPercentageLabel.Location = new Point(
-                centerX - (batteryPercentageLabel.Width / 2),
-                centerY + 20
-            );
-        };
-
-        // Setup events
         Device.OnCastStarted += OnCastStart;
         Resize += (s, e) => SyncChilds();
         LocationChanged += (s, e) => SyncChilds();
 
-        UpdateCastingLabel();
+        Shown += (sender, args) =>
+        {
+            if (BatteryLabel == null)
+            {
+                BatteryLabel = new RoundedLabel();
+                BatteryLabel.Text = "??%";
+                BatteryLabel.ChipColor = ColorTranslator.FromHtml(device.GetDeviceInfo().HexColor);
+                BatteryLabel.ForeColor = Color.White;
+                BatteryLabel.Font = new Font("Segoe UI", 30f);
+                BatteryLabel.AutoSize = true;
+
+                MainForm.GetInstance().Overlay.AddChip(BatteryLabel, this);
+            }
+
+            UpdateUIElements();
+        };
+
+        FormClosed += (sender, args) =>
+        {
+            MainForm.GetInstance().Overlay.RemoveChip(BatteryLabel);
+        };
+
+        UpdateUIElements();
         StartUpdateTimer();
+
+        Tick(null, EventArgs.Empty);
+        Tick(null, EventArgs.Empty);
+
+        ResizeEnd += (sender, args) =>
+        {
+            UpdateUIElements();
+        };
     }
 
     public Color GetColor(string name)
@@ -120,50 +70,78 @@ public class DeviceWindow : Form
 
     public void ApplyVisualFormat()
     {
-        int style = GetWindowLong(Handle, GWL_STYLE);
+        int style = WindowsApi.GetWindowLong(Handle, WindowsApi.GWL_STYLE);
 
-        style |= WS_CHILD | WS_VISIBLE;
-        style &= ~WS_POPUP;
-        style &= ~WS_CAPTION;
-        style &= ~WS_THICKFRAME;
+        style |= WindowsApi.WS_CHILD | WindowsApi.WS_VISIBLE;
+        style &= ~WindowsApi.WS_POPUP;
+        style &= ~WindowsApi.WS_CAPTION;
+        style &= ~WindowsApi.WS_THICKFRAME;
 
-        SetWindowLong(Handle, GWL_STYLE, style);
+        WindowsApi.SetWindowLong(Handle, WindowsApi.GWL_STYLE, style);
     }
 
     public void OnCastStart(Process prc)
     {
+        WaitForMainWindow(prc);
+
         Invoke(() =>
         {
-            castingProcess = prc;
 
-            IntPtr window = castingProcess.MainWindowHandle;
+            while (Handle == IntPtr.Zero)
+            {
 
-            // Setup window style (hide borders)
-            int currentStyle = GetWindowLong(window, GWL_STYLE);
-            int newStyle = (currentStyle | WS_CHILD | WS_VISIBLE)
-                & ~WS_POPUP
-                & ~WS_CAPTION
-                & ~WS_THICKFRAME;
+            }
 
-            SetWindowLong(window, GWL_STYLE, newStyle);
+            prc.Exited += (sender, args) =>
+            {
+                UpdateUIElements();
+            };
 
-            // Make window parent of this form
-            SetParent(window, Handle);
+            Invoke(() =>
+            {
+                castingProcess = prc;
 
-            UpdateCastingLabel();
+                IntPtr window = castingProcess.MainWindowHandle;
 
-            MainForm.GetInstance().RecalculateLayout();
+                // Setup window style (hide borders)
+                int currentStyle = WindowsApi.GetWindowLong(window, WindowsApi.GWL_STYLE);
+                int newStyle = (currentStyle | WindowsApi.WS_CHILD | WindowsApi.WS_VISIBLE)
+                    & ~WindowsApi.WS_POPUP
+                    & ~WindowsApi.WS_CAPTION
+                    & ~WindowsApi.WS_THICKFRAME;
 
-            SyncChilds();
+                WindowsApi.SetWindowLong(window, WindowsApi.GWL_STYLE, newStyle);
+
+                // Make window parent of this form
+                WindowsApi.SetParent(window, Handle);
+
+                UpdateUIElements();
+
+                MainForm.GetInstance().RecalculateLayout();
+
+                SyncChilds();
+            });
         });
     }
 
-    private void UpdateCastingLabel()
+    private void WaitForMainWindow(Process process)
     {
-        bool casting = IsCasting();
 
-        castingDisabledLabel.Visible = !casting;
-        batteryPercentageLabel.Visible = !casting;
+        for (int i = 0; i < 100; i++)
+        {
+            if (process.HasExited)
+                throw new InvalidOperationException("Casting process exited.");
+
+            process.Refresh();
+
+            if (process.MainWindowHandle != IntPtr.Zero)
+                return;
+
+            Thread.Sleep(100);
+        }
+
+        throw new TimeoutException(
+            "Timed out waiting for casting process main window.");
     }
 
     public void StartUpdateTimer()
@@ -175,7 +153,7 @@ public class DeviceWindow : Form
                 Interval = 10_000
             };
 
-            updateTimer.Tick += Update;
+            updateTimer.Tick += Tick;
             updateTimer.Start();
 
             Device.OnDisconnect += () =>
@@ -187,9 +165,8 @@ public class DeviceWindow : Form
 
     }
 
-    private void Update(object? sender, EventArgs e)
+    private void Tick(object? sender, EventArgs e)
     {
-        Console.WriteLine("UPDATE!!!");
         if (Device.IsScreenEnabled())
         {
             if (!Device.IsCasting())
@@ -201,32 +178,60 @@ public class DeviceWindow : Form
                 Device.StopCast();
         }
 
-        int batteryPercentage = Device.GetBatteryLevel();
-        batteryPercentageLabel.Text = $"{batteryPercentage}%";
-
-        UpdateCastingLabel();
+        UpdateUIElements();
     }
+
+
+    private Label infoLabel;
+    private void UpdateUIElements()
+    {
+
+        int battery = Device.GetBatteryLevel();
+        if (BatteryLabel != null)
+            BatteryLabel.Text = $"{battery}%";
+
+        if (infoLabel == null)
+        {
+            infoLabel = new Label();
+            infoLabel.Font = new Font("Segoe UI", 30f);
+            infoLabel.ForeColor = Color.White;
+            Controls.Add(infoLabel);
+        }
+        bool displayEnabled = Device.IsScreenEnabled();
+        bool casting = Device.IsCasting();
+
+        if (!displayEnabled || !casting)
+        {
+            infoLabel.Show();
+            infoLabel.Text = "Display not enabled";
+            infoLabel.AutoSize = true;
+
+            infoLabel.Location = new Point(
+                (ClientSize.Width - infoLabel.Width) / 2,
+                (ClientSize.Height - infoLabel.Height) / 2
+            );
+
+            infoLabel.BringToFront();
+            return;
+        }
+
+        infoLabel.Hide();
+    }
+
 
     private void SyncChilds()
     {
         if (IsCasting())
         {
-            castingDisabledLabel.Visible = false;
-            batteryPercentageLabel.Visible = false;
+            IntPtr castHandle = castingProcess!.MainWindowHandle;
 
-            MoveWindow(
-                castingProcess!.MainWindowHandle,
-                0,
-                0,
-                ClientSize.Width,
-                ClientSize.Height,
-                true
+            WindowsApi.SetWindowPos(
+                castHandle,
+                WindowsApi.HWND_BOTTOM,
+                0, 0,
+                ClientSize.Width, ClientSize.Height,
+                WindowsApi.SWP_NOACTIVATE | WindowsApi.SWP_SHOWWINDOW
             );
-        }
-        else
-        {
-            castingDisabledLabel.Visible = true;
-            batteryPercentageLabel.Visible = true;
         }
     }
 
@@ -235,6 +240,7 @@ public class DeviceWindow : Form
         bool processExists = castingProcess != null;
         if (!processExists)
             return false;
+
         try
         {
             if (castingProcess.HasExited)
@@ -244,19 +250,25 @@ public class DeviceWindow : Form
         }
         catch (InvalidOperationException)
         {
-            // The Process object isn't associated with a running process.
             return false;
         }
     }
 
+    public RoundedLabel BatteryLabel;
     public void Move(int x, int y, int width, int height)
     {
         Invoke(() =>
         {
+            BatteryLabel.Location = new Point(x + 50, y + height - 100);
             Location = new Point(x, y);
             Size = new Size(width, height);
             Refresh();
             SyncChilds();
+
+            infoLabel.Location = new Point(
+                (ClientSize.Width - infoLabel.Width) / 2,
+                (ClientSize.Height - infoLabel.Height) / 2
+            );
         });
     }
 

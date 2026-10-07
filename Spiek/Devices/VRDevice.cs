@@ -1,4 +1,5 @@
-﻿using System.Diagnostics;
+﻿using Spiek.Utils;
+using System.Diagnostics;
 
 namespace Spiek.Devices;
 
@@ -23,13 +24,15 @@ public abstract class VRDevice
     public abstract void Connect();
     public abstract void StartCast();
     public abstract bool IsScreenEnabled();
-
+    public abstract void PowerDown();
 
     public void Fatal(string msg)
     {
         SetDeviceState(DeviceState.Error);
         OnFatal?.Invoke(msg);
     }
+
+    public abstract string[] GetApps();
 
     public event Action<string>? OnFatal;
     public event Action? OnDisconnect;
@@ -44,6 +47,26 @@ public abstract class VRDevice
     }
 
     public abstract int GetBatteryLevel();
+
+    public DeviceInfo GetDeviceInfo()
+    {
+        DeviceInfo? info = Settings.Instance.Devices.FirstOrDefault((o) =>
+        {
+            return o.DeviceId == GetDeviceSerial();
+        });
+
+        if (info == null)
+        {
+            info = new DeviceInfo()
+            {
+                DeviceId = GetDeviceSerial(),
+                HexColor = "#FF0000",
+                Name = "Unnamed"
+            };
+        }
+
+        return info;
+    }
 }
 
 public enum DeviceState

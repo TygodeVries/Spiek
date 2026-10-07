@@ -198,7 +198,7 @@ public class QuestVRDevice : VRDevice
                     size = (0, 0, 1000, 500);
                 }
 
-                string args = Program.settings
+                string args = Settings.Instance.SrcpyLaunchArguments
                         .Replace("%addr%", GetAddress())
                         .Replace("%width%", size.Value.width.ToString())
                         .Replace("%height%", size.Value.height.ToString())
@@ -239,7 +239,7 @@ public class QuestVRDevice : VRDevice
                     }
                     catch (Exception e)
                     {
-                        MainForm.GetInstance().ErrorAlert("SHIT ITS BROKEN AGAIN! " + e);
+                        MainForm.GetInstance().ErrorAlert("Something went very wrong: " + e);
                         return;
                     }
                 }
@@ -303,18 +303,44 @@ public class QuestVRDevice : VRDevice
         return $"{Ip}:{Port}";
     }
 
-    public string? SendCommand(string command, bool bypassConnection = false)
+    public string? SendCommand(string command, bool bypassConnection = false, bool dontDisconnectIfIncorrect = false)
     {
         if (!bypassConnection)
             ErrorIfNotConnected("Can not send commands to this device if its not connected.");
 
         (string msg, bool success) = Command.Run("adb", $"-s {GetAddress()} {command}");
-        if (!success)
+        last = success;
+
+        if (!success && !dontDisconnectIfIncorrect)
         {
             Disconnect();
             return null;
         }
+
         return msg;
+    }
+
+    public async Task<string?> SendCommandAsync(string command, bool bypassConnection = false, bool dontDisconnectIfIncorrect = false)
+    {
+        if (!bypassConnection)
+            ErrorIfNotConnected("Can not send commands to this device if its not connected.");
+
+        (string msg, bool success) = await Command.RunAsync("adb", $"-s {GetAddress()} {command}");
+        last = success;
+
+        if (!success && !dontDisconnectIfIncorrect)
+        {
+            Disconnect();
+            return null;
+        }
+
+        return msg;
+    }
+
+    private bool last = false;
+    public bool LastCommandSuccess()
+    {
+        return last;
     }
 
     public override int GetBatteryLevel()
@@ -423,4 +449,13 @@ public class QuestVRDevice : VRDevice
         return result?.Trim() ?? string.Empty;
     }
 
+    public override void PowerDown()
+    {
+        SendCommand("shell reboot -p");
+    }
+
+    public override string[] GetApps()
+    {
+        throw new NotImplementedException();
+    }
 }

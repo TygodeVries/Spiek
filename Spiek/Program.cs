@@ -1,28 +1,29 @@
 ﻿using Spiek.Devices;
 using Spiek.UI;
+using System.Diagnostics;
 
 public class Program
 {
-    /*
-     * Problem: It seems that the quests are merging their ips and ports when multiple connected.
-     * When a new headset is connecting, all other onces crash. 
-     */
+    public static bool FirewallRuleExists(string ruleName)
+    {
+        var psi = new ProcessStartInfo
+        {
+            FileName = "netsh",
+            Arguments = $"advfirewall firewall show rule name=\"{ruleName}\"",
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            UseShellExecute = false,
+            CreateNoWindow = true
+        };
 
+        using var process = Process.Start(psi);
+        process.WaitForExit();
 
+        return process.ExitCode == 0;
+    }
 
-    // #TODO make sure to have permission to listen on UDP: netsh advfirewall firewall add rule name="Quest Spiek UDP Bridge" dir=in action=allow protocol=UDP localport=9999
+    // #TODO make sure to have permission to listen on UDP: netsh advfirewall firewall add rule name="Quest Spiek UDP Bridge" dir=in action=allow protocol=UDP localport=
 
-
-    /* Todo, setup the link app:
-     * 
-     * Accessability, because we need to pretend to click allow
-     * adb shell settings put secure enabled_accessibility_services dev.thesheep.spiek/.AdbAutoAllowService
-     * adb shell settings put secure accessibility_enabled 1
-     * 
-     * Allow running adb
-     * adb shell pm grant dev.thesheep.spiek android.permission.WRITE_SECURE_SETTINGS
-     */
-    public static string settings = "--stay-awake --keep-active --no-audio -b 6M --crop %width%:%height%:%x%:%y% --video-codec=h264 --max-size=400 --max-fps=20 --window-title \"Quest\" -s %addr%";
     public static QuestDiscover? questDiscover;
     public static void Main(string[] args)
     {

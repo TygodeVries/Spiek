@@ -1,6 +1,5 @@
 ﻿using Spiek.Devices;
-using System.Diagnostics;
-using System.Net.NetworkInformation;
+using Spiek.Utils;
 using System.Numerics;
 namespace Spiek.UI
 {
@@ -11,12 +10,11 @@ namespace Spiek.UI
         {
             return instance!;
         }
-        private Form form;
 
-        public void Invoke(Action action)
-        {
-            form.Invoke(action);
-        }
+        public List<DeviceWindow> DeviceWindows { get; private set; } = new List<DeviceWindow>();
+        public OverlayWindow Overlay { get; private set; }
+        private List<VRDevice> devices = new List<VRDevice>();
+        private Form form;
 
         public MainForm()
         {
@@ -24,10 +22,11 @@ namespace Spiek.UI
 
             form = new Form()
             {
-                WindowState = FormWindowState.Maximized
+                WindowState = FormWindowState.Maximized,
+                Text = "Spiek",
+                Icon = new Icon("App.ico"),
+                BackColor = Color.Black
             };
-
-            form.Icon = new Icon("App.ico");
 
             form.Focus();
 
@@ -37,49 +36,72 @@ namespace Spiek.UI
             {
                 Setup();
                 ShowNoConnections();
-
+                CreateOverlay();
                 form.Invoke(() =>
                 {
-                    StartUpdate();
-                    form.BackColor = Color.Black;
+                    StartTick();
                 });
+
+                if (!Program.FirewallRuleExists("Quest Spiek UDP Bridge"))
+                {
+                    ErrorAlert("The firewall rules are not set correctly. \nAutomatic connect might not work correctly.");
+                }
             };
 
 
             Application.Run(form);
         }
 
-        private static System.Windows.Forms.Timer? updateTimer;
-        public static void StartUpdate()
+        public void Invoke(Action action)
         {
-            updateTimer = new System.Windows.Forms.Timer();
-            updateTimer.Tick += new EventHandler(Update);
-            updateTimer.Interval = 5000;
-            updateTimer.Start();
+            form.Invoke(action);
         }
 
-        private static void Update(object? sender, EventArgs e)
+        public void CreateOverlay()
+        {
+            OverlayWindow overlayWindow = new OverlayWindow();
+            Overlay = overlayWindow;
+
+            IntPtr h = overlayWindow.Handle;
+
+            int currentStyle = WindowsApi.GetWindowLong(h, WindowsApi.GWL_STYLE);
+            int newStyle = (currentStyle | WindowsApi.WS_CHILD | WindowsApi.WS_VISIBLE)
+                & ~WindowsApi.WS_POPUP
+                & ~WindowsApi.WS_CAPTION
+                & ~WindowsApi.WS_THICKFRAME;
+
+            WindowsApi.SetWindowLong(h, WindowsApi.GWL_STYLE, newStyle);
+
+            overlayWindow.Show();
+        }
+
+        private static System.Windows.Forms.Timer? updateTimer;
+        public static void StartTick()
+        {
+            updateTimer = new System.Windows.Forms.Timer();
+            updateTimer.Tick += new EventHandler(Tick);
+            updateTimer.Interval = 5000;
+            updateTimer.Start();
+
+            Tick(null, EventArgs.Empty);
+        }
+
+        private static void Tick(object? sender, EventArgs e)
         {
             Program.questDiscover?.Broadcast("SPIEK_PING");
         }
 
-        private ToolStripDropDownButton AddDropDown(
-            ToolStrip toolStrip,
-            string text,
-            params (string Name, Action Click)[] items)
+        public VRDevice[] GetDevices()
         {
-            var button = new ToolStripDropDownButton(text);
+            return devices.ToArray();
+        }
 
-            foreach (var (name, click) in items)
-            {
-                var menuItem = new ToolStripMenuItem(name);
-                menuItem.Click += (_, _) => click();
+        public VRDevice? GetSelectedDevice()
+        {
+            if (SelectedWindow == null && devices.Count == 1)
+                return devices.First();
 
-                button.DropDownItems.Add(menuItem);
-            }
-
-            toolStrip.Items.Add(button);
-            return button;
+            return SelectedWindow?.Device;
         }
 
         public void Setup()
@@ -92,39 +114,7 @@ namespace Spiek.UI
             };
 
             toolStrip.OverflowButton.Visible = false;
-
-            AddDropDown(toolStrip, "Connect",
-                ("Meta Quest over USB", () => ManualUsbConnect()),
-                ("Meta Quest over IP", () => ManualIpConnect()),
-                ("Ping on Network", () =>
-                {
-                    Program.questDiscover.Broadcast("SPIEK_PING");
-                }
-            ));
-
-            /*
-             * AddDropDown(toolStrip, "Settings",
-                ("Static Ip List", () => OpenStaticIpList()));
-            */
-
-            AddDropDown(toolStrip, "Advanced",
-                ("Power-off All", () =>
-                {
-                    foreach (VRDevice device in devices)
-                    {
-                        if (device is QuestVRDevice quest)
-                        {
-                            quest.SendCommand("shell reboot -p");
-                        }
-                    }
-                }
-            ),
-                ("Patch USB with auto startup", () => PatchUsb.Patch())
-                );
-
-            AddDropDown(toolStrip, "About",
-                ("Version", () => Popup("Sπk is on version 1.0")),
-                ("Credits", () => Popup("Developer: Tygo\nIcons and Logo: DJ\nCreated for the Digial Art Factory")));
+            Tools.Populate(toolStrip);
 
             form.Invoke(() =>
             {
@@ -132,95 +122,10 @@ namespace Spiek.UI
             });
         }
 
-        public void OpenStaticIpList()
+        public void AddDummyDevice()
         {
-            if (!File.Exists("static-ips.txt"))
-            {
-                File.WriteAllText("static-ips.txt", "# Add a list of static ips for your Meta Quest headsets.");
-                InfoAlert("Created static-ips.txt");
-            }
-
-            Process.Start("notepad.exe", "static-ips.txt");
+            AddDevice(new DummyDevice());
         }
-
-        public void PingStaticIps()
-        {
-            if (!File.Exists("static-ips.txt"))
-            {
-                File.WriteAllText(
-                    "static-ips.txt",
-                    "# Add a list of static ips for your Meta Quest headsets."
-                );
-            }
-
-            string[] lines = File.ReadAllLines("static-ips.txt");
-
-            List<string> ips = new List<string>();
-
-            foreach (string line in lines)
-            {
-                string ip = line.Trim();
-
-                if (string.IsNullOrWhiteSpace(ip) || ip.StartsWith("#"))
-                    continue;
-
-                ips.Add(ip);
-            }
-
-            form.Cursor = Cursors.WaitCursor;
-            List<string> online = new List<string>();
-
-            foreach (string ip in ips)
-            {
-                var result = CheckDeviceOnline(ip, 1000);
-
-                if (result.IsOnline)
-                    online.Add(result.IP);
-            }
-
-            form.Cursor = Cursors.Default;
-            InfoAlert(
-                $"Pinged {ips.Count} devices, {online.Count} of those are active."
-            );
-
-            foreach (string ip in online)
-            {
-                QuestVRDevice questVRDevice = new QuestVRDevice(ip.Trim(), 5555);
-                AddDevice(questVRDevice);
-            }
-        }
-
-
-        private static (string IP, bool IsOnline) CheckDeviceOnline(
-    string ipAddress,
-    int timeoutMs)
-        {
-            try
-            {
-                using Ping ping = new Ping();
-
-                Console.WriteLine($"Pinging {ipAddress}");
-
-                PingReply reply = ping.Send(ipAddress, timeoutMs);
-
-                Console.WriteLine(
-                    $"Finished {ipAddress}: {reply.Status} ({reply.RoundtripTime}ms)");
-
-                return (ipAddress, reply.Status == IPStatus.Success);
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine(
-                    $"Failed {ipAddress}: {ex.GetType().Name}: {ex.Message}");
-
-                return (ipAddress, false);
-            }
-        }
-
-
-
-        public List<DeviceWindow> deviceWindows = new List<DeviceWindow>();
-
         public void ManualUsbConnect()
         {
             List<string>? devices = QuestVRDevice.GetUsbDevices();
@@ -232,7 +137,7 @@ namespace Spiek.UI
 
             if (devices.Count == 0)
             {
-                InfoAlert("No devices are attached.");
+                InfoAlert("No devices are attached, or they could not be reached.\nTry plugging the device out and in.");
                 return;
             }
 
@@ -250,8 +155,8 @@ namespace Spiek.UI
             AddDevice(new QuestVRDevice(device));
         }
 
+        private Panel? noConnectionsBox = null;
 
-        private PictureBox? noConnectionsBox = null;
         public void ShowNoConnections()
         {
             // Already showing
@@ -260,14 +165,37 @@ namespace Spiek.UI
 
             form.Invoke(() =>
             {
-                noConnectionsBox = new PictureBox()
+                var panel = new Panel
                 {
-                    Image = new Bitmap("images/no-headsets.png"),
                     Dock = DockStyle.Fill,
+                    BackColor = form.BackColor,
+                    Padding = new Padding(100)
+                };
+
+                var logo = new PictureBox
+                {
+                    Image = new Bitmap("images/Logo-big.png"),
+                    Dock = DockStyle.Top,
+                    Height = 500,
                     SizeMode = PictureBoxSizeMode.Zoom
                 };
 
-                form.Controls.Add(noConnectionsBox);
+                var text = new Label
+                {
+                    Text = "Scanning for devices...",
+                    Dock = DockStyle.Bottom,
+                    Height = 100,
+                    TextAlign = ContentAlignment.MiddleCenter,
+                    Font = new Font("Segoe UI", 32, FontStyle.Regular),
+                    ForeColor = Color.White
+                };
+
+                panel.Controls.Add(text);
+                panel.Controls.Add(logo);
+
+                form.Controls.Add(panel);
+
+                noConnectionsBox = panel;
             });
         }
 
@@ -280,10 +208,11 @@ namespace Spiek.UI
                     return;
 
                 form.Controls.Remove(noConnectionsBox);
+                noConnectionsBox.Dispose();
+                noConnectionsBox = null;
             });
         }
 
-        private List<VRDevice> devices = new List<VRDevice>();
 
         public void AddDevice(VRDevice vrDevice)
         {
@@ -309,12 +238,17 @@ namespace Spiek.UI
             });
         }
 
+        public Form GetForm()
+        {
+            return form;
+        }
+
         private void AddDeviceWindow(VRDevice vrDevice)
         {
             devices.Add(vrDevice);
 
             DeviceWindow deviceWindow = new DeviceWindow(vrDevice);
-            deviceWindows.Add(deviceWindow);
+            DeviceWindows.Add(deviceWindow);
 
             form.Controls.Add(deviceWindow);
             deviceWindow.Show();
@@ -327,26 +261,60 @@ namespace Spiek.UI
             {
                 form.Invoke(() =>
                 {
-                    deviceWindows.Remove(deviceWindow);
+                    DeviceWindows.Remove(deviceWindow);
                     devices.Remove(vrDevice);
 
                     deviceWindow.Close();
 
-                    if (deviceWindows.Count == 0)
+                    if (DeviceWindows.Count == 0)
                         ShowNoConnections();
                 });
             };
         }
 
+        public DeviceWindow? SelectedWindow { get; private set; }
 
+        public void SetSelectedWindow(DeviceWindow? window)
+        {
+            if (SelectedWindow == window)
+                SelectedWindow = null;
+            else
+                SelectedWindow = window;
+
+            RecalculateLayout();
+        }
+
+        public DeviceWindow? GetDeviceWindowAt(Vector2 mouse)
+        {
+            for (int i = 0; i < DeviceWindows.Count; i++)
+            {
+                Vector4 rect = GetWindowRect(i);
+
+                if (mouse.X >= rect.X &&
+                    mouse.X < rect.X + rect.Z &&
+                    mouse.Y >= rect.Y &&
+                    mouse.Y < rect.Y + rect.W)
+                {
+                    return DeviceWindows[i];
+                }
+            }
+
+            return null;
+        }
 
         public void RecalculateLayout()
         {
+            if (Overlay != null)
+            {
+                Overlay.Size = form.Size;
+                Overlay.Location = form.Location;
+            }
+
             form.Invoke(() =>
             {
                 form.BackColor = Color.Black;
                 int i = 0;
-                foreach (DeviceWindow window in deviceWindows)
+                foreach (DeviceWindow window in DeviceWindows)
                 {
                     Vector4 pos = GetWindowRect(i);
                     window.Move((int)pos.X, (int)pos.Y, (int)pos.Z, (int)pos.W);
@@ -357,14 +325,201 @@ namespace Spiek.UI
             });
         }
 
+        public Vector4 GetWindowRect(int index)
+        {
+            int count = DeviceWindows.Count;
+
+            if (count == 0)
+                return Vector4.Zero;
+
+            if (SelectedWindow == null)
+            {
+                int cols = (int)Math.Ceiling(Math.Sqrt(count));
+                int rows = (int)Math.Ceiling((double)count / cols);
+
+                float cellWidth = (float)form.ClientSize.Width / cols;
+                float cellHeight = (float)form.ClientSize.Height / rows;
+
+                int row = index / cols;
+                int col = index % cols;
+
+                return new Vector4(
+                    col * cellWidth,
+                    row * cellHeight,
+                    cellWidth,
+                    cellHeight
+                );
+            }
+
+            DeviceWindow selected = SelectedWindow;
+
+            float selectedWidth = form.ClientSize.Width * 0.8f;
+            float sideWidth = form.ClientSize.Width - selectedWidth;
+
+            if (DeviceWindows[index] == selected)
+            {
+                return new Vector4(
+                    0,
+                    0,
+                    selectedWidth,
+                    form.ClientSize.Height
+                );
+            }
+
+            var others = DeviceWindows
+                .Where(x => x != selected)
+                .ToList();
+
+            int otherIndex = others.IndexOf(DeviceWindows[index]);
+
+            int otherCount = others.Count;
+
+            if (otherCount == 0)
+                return Vector4.Zero;
+
+            float height = (float)form.ClientSize.Height / otherCount;
+
+            return new Vector4(
+                selectedWidth,
+                otherIndex * height,
+                sideWidth,
+                height
+            );
+        }
+
         public void ManualIpConnect()
         {
-            string ip = PopupInput("Please enter the IP of the Meta Quest");
+            string ip = AlertTextInput("Please enter the IP of the Meta Quest");
             QuestVRDevice device = new QuestVRDevice(ip, 5555);
             AddDevice(device);
         }
 
-        public string PopupInput(string text)
+        public bool AlertConfirm(string text)
+        {
+            bool result = false;
+
+            form.Invoke(() =>
+            {
+                Form confirmForm = new Form
+                {
+                    Text = "Sπk",
+                    Size = new Size(350, 160),
+                    StartPosition = FormStartPosition.CenterParent,
+                    FormBorderStyle = FormBorderStyle.FixedDialog,
+                    MaximizeBox = false,
+                    MinimizeBox = false
+                };
+
+                Label label = new Label
+                {
+                    Text = text,
+                    Dock = DockStyle.Top,
+                    Height = 60,
+                    TextAlign = ContentAlignment.MiddleCenter
+                };
+
+                Button yesButton = new Button
+                {
+                    Text = "Yes",
+                    DialogResult = DialogResult.Yes,
+                    Width = 80,
+                    Top = 75,
+                    Left = 85
+                };
+
+                Button noButton = new Button
+                {
+                    Text = "No",
+                    DialogResult = DialogResult.No,
+                    Width = 80,
+                    Top = 75,
+                    Left = 175
+                };
+
+                confirmForm.AcceptButton = yesButton;
+                confirmForm.CancelButton = noButton;
+
+                confirmForm.Controls.Add(label);
+                confirmForm.Controls.Add(yesButton);
+                confirmForm.Controls.Add(noButton);
+
+                result = confirmForm.ShowDialog(form) == DialogResult.Yes;
+            });
+
+            return result;
+        }
+
+        private Form? loadingForm;
+
+        public void ShowLoading(string text = "Loading...")
+        {
+            form.Invoke(() =>
+            {
+                // Already showing
+                if (loadingForm != null)
+                    return;
+
+                loadingForm = new Form
+                {
+                    Text = "Sπk",
+                    Size = new Size(350, 140),
+                    StartPosition = FormStartPosition.CenterParent,
+                    FormBorderStyle = FormBorderStyle.FixedDialog,
+                    MaximizeBox = false,
+                    MinimizeBox = false,
+                    ControlBox = false,
+                    ShowInTaskbar = false
+                };
+
+                Label label = new Label
+                {
+                    Text = text,
+                    Dock = DockStyle.Top,
+                    Height = 55,
+                    TextAlign = ContentAlignment.MiddleCenter
+                };
+
+                ProgressBar progressBar = new ProgressBar
+                {
+                    Style = ProgressBarStyle.Marquee,
+                    MarqueeAnimationSpeed = 30,
+                    Width = 280,
+                    Height = 25,
+                    Left = 27,
+                    Top = 65
+                };
+
+                loadingForm.Controls.Add(label);
+                loadingForm.Controls.Add(progressBar);
+
+                loadingForm.FormClosed += (_, _) =>
+                {
+                    loadingForm = null;
+                };
+
+                loadingForm.Show(form);
+                loadingForm.BringToFront();
+            });
+        }
+
+        public void HideLoading()
+        {
+            if (form.InvokeRequired)
+            {
+                form.Invoke(HideLoading);
+                return;
+            }
+
+            if (loadingForm == null)
+                return;
+
+            loadingForm?.Close();
+            loadingForm?.Dispose();
+            loadingForm = null;
+        }
+
+
+        public string AlertTextInput(string text)
         {
             string inputResult = string.Empty;
 
@@ -443,6 +598,11 @@ namespace Spiek.UI
             });
         }
 
+        public void ErrorNoSelected()
+        {
+            ErrorAlert("You have no device selected. Press the power label to select the device.");
+        }
+
         public void ErrorAlert(string text)
         {
             if (form.IsDisposed)
@@ -516,32 +676,6 @@ namespace Spiek.UI
             });
 
             return result;
-        }
-
-        public Vector4 GetWindowRect(int index)
-        {
-            int count = deviceWindows.Count;
-            if (count == 0)
-                return Vector4.Zero;
-
-            int cols = (int)Math.Ceiling(Math.Sqrt(count));
-            int rows = (int)Math.Ceiling((double)count / cols);
-
-            float cellWidth = form.Width / cols;
-            float cellHeight = form.Height / rows;
-
-            int row = index / cols;
-            int col = index % cols;
-
-            float x = col * cellWidth;
-            float y = row * cellHeight;
-
-            return new Vector4(
-                x,
-                y,
-                cellWidth,
-                cellHeight
-            );
         }
     }
 }
