@@ -151,6 +151,12 @@ public class QuestVRDevice : VRDevice
             return;
         }
 
+        if (msg.Contains("failed to connect"))
+        {
+            Fatal(msg);
+            return;
+        }
+
         Thread.Sleep(500);
 
         SetDeviceState(DeviceState.Connected);
@@ -163,98 +169,157 @@ public class QuestVRDevice : VRDevice
         }
     }
 
+    private readonly object castLock = new object();
     private bool startingCast = false;
     public override void StartCast()
     {
+        lock (castLock)
+        {
+            if (startingCast || cast != null)
+                return;
 
+            startingCast = true;
+        }
 
-        if (startingCast)
-            return;
-
-        startingCast = true;
         Thread thr = new Thread(() =>
+        {
+            Process? prc = null;
+
+            try
             {
                 Console.WriteLine("Starting Cast...");
+
                 if (State != DeviceState.Connected)
                 {
-                    startingCast = false;
-                    Console.WriteLine("Can not start stream if the device is not connected.");
+                    Console.WriteLine(
+                        "Cannot start stream if the device is not connected.");
                     return;
                 }
 
                 int battery = GetBatteryLevel();
+
                 if (battery != -1 && battery <= 20)
                 {
-                    MainForm.GetInstance().InfoAlert("Stream might not function since battery level is below 20%.");
+                    MainForm.GetInstance().InfoAlert(
+                        "Stream might not function since battery level is below 20%.");
                 }
 
                 Console.WriteLine($"Battery is {battery}.");
 
-                (int x, int y, int width, int height)? size = GetCrop();
+                var size = GetCrop();
 
                 if (size == null)
                 {
-                    MainForm.GetInstance().InfoAlert("Could not optain display resolution required for casting.");
+                    MainForm.GetInstance().InfoAlert(
+                        "Could not obtain display resolution required for casting.");
+
                     size = (0, 0, 1000, 500);
                 }
 
                 string args = Settings.Instance.SrcpyLaunchArguments
-                        .Replace("%addr%", GetAddress())
-                        .Replace("%width%", size.Value.width.ToString())
-                        .Replace("%height%", size.Value.height.ToString())
-                        .Replace("%x%", size.Value.x.ToString())
-                        .Replace("%y%", size.Value.y.ToString());
+                    .Replace("%addr%", GetAddress())
+                    .Replace("%width%", size.Value.width.ToString())
+                    .Replace("%height%", size.Value.height.ToString())
+                    .Replace("%x%", size.Value.x.ToString())
+                    .Replace("%y%", size.Value.y.ToString());
 
                 Console.WriteLine("Starting Casting Application...");
-                (Process? prc, string msg) = Command.RunGetPrc("programs/scrcpy.exe", args);
+
+                (prc, string msg) =
+                    Command.RunGetPrc("programs/scrcpy.exe", args);
+
                 if (prc == null)
                 {
-                    startingCast = false;
                     Fatal("Failed to start cast because: " + msg);
                     return;
                 }
 
-                IntPtr childHandle = IntPtr.Zero;
                 Console.WriteLine("Waiting for window...");
+
+                IntPtr childHandle = IntPtr.Zero;
+
                 for (int attempts = 0; attempts < 100 && childHandle == IntPtr.Zero; attempts++)
                 {
+                    if (prc.HasExited)
+                        break;
+
                     prc.Refresh();
                     childHandle = prc.MainWindowHandle;
+
                     if (childHandle == IntPtr.Zero)
-                    {
-                        Thread.Sleep(100);
-                    }
+                        Thread.Sleep(200);
                 }
 
                 if (childHandle == IntPtr.Zero)
                 {
+                    Console.WriteLine("Casting window did not appear in time. Terminating scrcpy.");
+
                     try
                     {
-                        Fatal("Could not obtain casting window. scrcpy did not open a window.");
-                        startingCast = false;
-                        prc.Kill();
-                        prc.Dispose();
-                        cast = null;
-                        return;
+                        if (!prc.HasExited)
+                        {
+                            prc.Kill();
+                            prc.WaitForExit(2000);
+                        }
                     }
                     catch (Exception e)
                     {
-                        MainForm.GetInstance().ErrorAlert("Something went very wrong: " + e);
-                        return;
+                        Console.WriteLine(
+                            "Failed to terminate scrcpy: " + e.Message);
+                    }
+
+                    Fatal("Could not obtain casting window. scrcpy did not open a window.");
+                    return;
+                }
+
+                lock (castLock)
+                {
+                    cast = prc;
+                    prc = null;
+                }
+
+                Console.WriteLine("Window found!");
+
+                RunCastStarted(cast);
+            }
+            catch (Exception e)
+            {
+                MainForm.GetInstance().ErrorAlert(
+                    "Failed to start casting: " + e);
+            }
+            finally
+            {
+                if (prc != null)
+                {
+                    try
+                    {
+                        if (!prc.HasExited)
+                        {
+                            prc.Kill();
+                            prc.WaitForExit(2000);
+                        }
+                    }
+                    catch (Exception e)
+                    {
+                        Console.WriteLine(
+                            "Process cleanup failed: " + e.Message);
+                    }
+                    finally
+                    {
+                        prc.Dispose();
                     }
                 }
 
-                cast = prc;
+                lock (castLock)
+                {
+                    startingCast = false;
+                }
+            }
+        });
 
-                Console.WriteLine("Window found!");
-                startingCast = false;
-
-                RunCastStarted(cast);
-            });
-
+        thr.IsBackground = true;
         thr.Start();
     }
-
     private Process? cast = null;
 
     public override bool IsCasting()

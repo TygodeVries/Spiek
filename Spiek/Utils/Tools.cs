@@ -1,5 +1,6 @@
 ﻿using Spiek.Devices;
 using Spiek.UI;
+using System.Diagnostics;
 
 namespace Spiek.Utils
 {
@@ -16,11 +17,47 @@ namespace Spiek.Utils
             AddOption(toolStrip, "Actions/Power/Power-off Selected Device", () => PoweroffSelected());
             AddOption(toolStrip, "Actions/Patch/Install Spiek on USB Connected Device", () => PatchUsb.Patch());
             AddOption(toolStrip, "Actions/Settings/Change Selected Device Settings", () => ChangeSettings());
+            AddOption(toolStrip, "Actions/Fix/Restart Casting", () => RestartCast());
+            AddOption(toolStrip, "Actions/Fix/Restart Spiek", () => RestartSpiek());
 
             AddOption(toolStrip, "Apps/SculptVR/Move Exports to Dropbox on Selected Device", () => _ = SculptVrMoveToDropbox());
 
             AddOption(toolStrip, "About/Version", () => MainForm.GetInstance().Popup("Sπk is on version: 'Beta 1'"));
             AddOption(toolStrip, "About/Credits", () => MainForm.GetInstance().Popup("Developer: Tygo\nIcons and Logo: DJ\nCreated for the Digial Art Factory"));
+        }
+
+        private static void RestartSpiek()
+        {
+            Process.Start(Application.ExecutablePath);
+
+            Thread.Sleep(2000);
+
+            Environment.Exit(-1);
+        }
+
+        private static void RestartCast()
+        {
+            foreach (VRDevice vrDevice in MainForm.GetInstance().GetDevices())
+            {
+                vrDevice.StopCast();
+            }
+
+            // Close all casting windows
+
+            Thread.Sleep(100);
+
+            foreach (Process process in Process.GetProcesses())
+            {
+                if (process.ProcessName.Contains("scrcpy"))
+                    process.Kill();
+            }
+
+            Thread.Sleep(500);
+
+            foreach (VRDevice vrDevice in MainForm.GetInstance().GetDevices())
+            {
+                vrDevice.StartCast();
+            }
         }
 
         private static void ChangeSettings()

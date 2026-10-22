@@ -21,6 +21,8 @@
                 this.BringToFront();
                 Refresh();
                 MainForm.GetInstance().GetForm().Refresh();
+                Invalidate();
+                MainForm.GetInstance().GetForm().Invalidate();
             };
 
             MainForm.GetInstance().GetForm().Deactivate += (sender, args) =>

@@ -270,6 +270,32 @@ namespace Spiek.UI
                         ShowNoConnections();
                 });
             };
+
+            if (DeviceWindows.Count != devices.Count)
+            {
+                // Double cast detected
+                Console.WriteLine("Detected Double cast!");
+                ResetAndRecover();
+            }
+        }
+
+        public void ResetAndRecover()
+        {
+            foreach (VRDevice device in devices)
+            {
+                device.Disconnect();
+            }
+
+            devices.Clear();
+
+            Thread.Sleep(100);
+
+            foreach (DeviceWindow window in DeviceWindows)
+            {
+                window.Close();
+            }
+
+            DeviceWindows.Clear();
         }
 
         public DeviceWindow? SelectedWindow { get; private set; }
