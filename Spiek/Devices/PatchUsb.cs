@@ -51,17 +51,39 @@ public class PatchUsb
             return;
         }
 
-        questVRDevice.SendCommand($"install -r {apkPath}");
+        string msg;
+        bool result;
+        // Install the app
+        (msg, result) = questVRDevice.SendCommand($"install -r {apkPath}", 0);
+        if (!result)
+        {
+            MainForm.GetInstance().ErrorAlert($"Failed to install apk: {msg}");
+            return;
+        }
 
-        questVRDevice.SendCommand(
-            "shell pm grant dev.thesheep.spiekandroid android.permission.WRITE_SECURE_SETTINGS",
-            true
-        );
+        // Give permission
+        (msg, result) = questVRDevice.SendCommand("shell pm grant dev.thesheep.spiekandroid android.permission.WRITE_SECURE_SETTINGS", 0);
+        if (!result)
+        {
+            MainForm.GetInstance().ErrorAlert($"Failed to give permission for android.permission.WRITE_SECURE_SETTINGS: {msg}");
+            return;
+        }
 
-        questVRDevice.SendCommand(
-            "shell monkey -p dev.thesheep.spiekandroid 1",
-            true
-        );
+        // Don't forget authorization after 7 days
+        (msg, result) = questVRDevice.SendCommand("shell settings put global adb_allowed_connection_time -1", 0);
+        if (!result)
+        {
+            MainForm.GetInstance().ErrorAlert($"Failed to bypass adb_allowed_connection_time: {msg}");
+            return;
+        }
+
+        // Startup first time
+        (msg, result) = questVRDevice.SendCommand("shell monkey -p dev.thesheep.spiekandroid 1", 0);
+        if (!result)
+        {
+            MainForm.GetInstance().ErrorAlert($"Failed to start spiek on device: {msg}");
+            return;
+        }
 
         MainForm.GetInstance().InfoAlert("Patch complete. Restart the headset for changes to take effect.");
     }

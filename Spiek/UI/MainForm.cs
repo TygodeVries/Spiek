@@ -261,6 +261,7 @@ namespace Spiek.UI
             {
                 form.Invoke(() =>
                 {
+                    ErrorAlert("A device has disconnected.");
                     DeviceWindows.Remove(deviceWindow);
                     devices.Remove(vrDevice);
 

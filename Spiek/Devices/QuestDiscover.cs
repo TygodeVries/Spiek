@@ -1,4 +1,5 @@
-﻿using System.Net;
+﻿using Spiek.UI;
+using System.Net;
 using System.Net.Sockets;
 using System.Text;
 
@@ -52,7 +53,7 @@ namespace Spiek.Devices
                 string message = Encoding.UTF8.GetString(result.Buffer).Trim();
                 string sender = result.RemoteEndPoint.Address.ToString();
 
-                _ = Task.Run(() =>
+                MainForm.GetInstance().Invoke(() =>
                 {
                     OnMessage?.Invoke((sender, message));
                 });

@@ -33,7 +33,6 @@ public class Program
         {
             Console.WriteLine(result.message);
 
-            // QUEST_DebugPort_12cfe1252388b1b5_45905
             string[] args = result.message.Split("_");
 
             if (args[0] != "QUEST")
@@ -45,7 +44,7 @@ public class Program
             QuestVRDevice questVRDevice = new QuestVRDevice(args[2]);
             questVRDevice.ForceAddress(result.ip, int.Parse(args[3]));
 
-            Console.WriteLine($"{questVRDevice.Ip}:{questVRDevice.Port} over network ping!");
+            Console.WriteLine($"A meta quest responded ({questVRDevice.Ip}:{questVRDevice.Port}) over network ping!");
             MainForm.GetInstance().AddDevice(questVRDevice);
         };
 

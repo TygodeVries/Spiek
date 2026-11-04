@@ -7,7 +7,6 @@ namespace Spiek.Devices;
 
 public class QuestVRDevice : VRDevice
 {
-
     public static List<string>? GetUsbDevices()
     {
         (string msg, bool success) = Command.Run("adb", $"devices");
@@ -385,6 +384,14 @@ public class QuestVRDevice : VRDevice
         return msg;
     }
 
+    public (string msg, bool success) SendCommand(string command, int i = 0)
+    {
+        (string msg, bool success) = Command.Run("adb", $"-s {GetAddress()} {command}");
+        last = success;
+
+        return (msg, success);
+    }
+
     public async Task<string?> SendCommandAsync(string command, bool bypassConnection = false, bool dontDisconnectIfIncorrect = false)
     {
         if (!bypassConnection)
@@ -410,7 +417,7 @@ public class QuestVRDevice : VRDevice
 
     public override int GetBatteryLevel()
     {
-        string? result = SendCommand("shell dumpsys battery");
+        string? result = SendCommand("shell dumpsys battery", false);
         if (result == null)
             return -1;
 
@@ -475,7 +482,7 @@ public class QuestVRDevice : VRDevice
             return null;
         }
 
-        string? result = SendCommand("shell ip addr show wlan0");
+        string? result = SendCommand("shell ip addr show wlan0", false);
         if (string.IsNullOrEmpty(result))
             return null;
 
@@ -490,7 +497,7 @@ public class QuestVRDevice : VRDevice
 
     public override bool IsScreenEnabled()
     {
-        string? result = SendCommand("shell dumpsys power");
+        string? result = SendCommand("shell dumpsys power", false);
         if (result == null)
             return false;
 
@@ -504,19 +511,19 @@ public class QuestVRDevice : VRDevice
 
     public override string GetDeviceSerial()
     {
-        string? result = SendCommand("shell getprop ro.serialno");
+        string? result = SendCommand("shell getprop ro.serialno", false);
 
         if (!string.IsNullOrWhiteSpace(result))
             return result.Trim();
 
-        result = SendCommand("shell getprop ro.boot.serialno");
+        result = SendCommand("shell getprop ro.boot.serialno", false);
 
         return result?.Trim() ?? string.Empty;
     }
 
     public override void PowerDown()
     {
-        SendCommand("shell reboot -p");
+        SendCommand("shell reboot -p", false);
     }
 
     public override string[] GetApps()
