@@ -49,6 +49,30 @@ namespace Spiek.UI
             };
 
 
+            bool fullscreen = false;
+
+            form.KeyPreview = true;
+
+            form.KeyDown += (_, e) =>
+            {
+                if (e.KeyCode == Keys.F11)
+                {
+                    fullscreen = !fullscreen;
+
+                    if (fullscreen)
+                    {
+                        form.FormBorderStyle = FormBorderStyle.None;
+                        form.WindowState = FormWindowState.Maximized;
+                    }
+                    else
+                    {
+                        form.FormBorderStyle = FormBorderStyle.Sizable;
+                        form.WindowState = FormWindowState.Normal;
+                    }
+                }
+            };
+
+
             Application.Run(form);
         }
 
