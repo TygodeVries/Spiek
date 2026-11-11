@@ -1,4 +1,5 @@
 ﻿using Spiek.Devices;
+using Spiek.UI.Update;
 using Spiek.Utils;
 using System.Numerics;
 namespace Spiek.UI
@@ -35,7 +36,7 @@ namespace Spiek.UI
             form.Shown += (_, _) =>
             {
                 Setup();
-                ShowNoConnections();
+                ShowSearching();
                 CreateOverlay();
                 form.Invoke(() =>
                 {
@@ -72,6 +73,7 @@ namespace Spiek.UI
                 }
             };
 
+            searchingBox = new Searching();
 
             Application.Run(form);
         }
@@ -179,61 +181,21 @@ namespace Spiek.UI
             AddDevice(new QuestVRDevice(device));
         }
 
-        private Panel? noConnectionsBox = null;
 
-        public void ShowNoConnections()
+        private Searching searchingBox;
+        public void ShowSearching()
         {
-            // Already showing
-            if (noConnectionsBox != null)
-                return;
-
             form.Invoke(() =>
             {
-                var panel = new Panel
-                {
-                    Dock = DockStyle.Fill,
-                    BackColor = form.BackColor,
-                    Padding = new Padding(100)
-                };
-
-                var logo = new PictureBox
-                {
-                    Image = new Bitmap("images/Logo-big.png"),
-                    Dock = DockStyle.Top,
-                    Height = 500,
-                    SizeMode = PictureBoxSizeMode.Zoom
-                };
-
-                var text = new Label
-                {
-                    Text = "Scanning for devices...",
-                    Dock = DockStyle.Bottom,
-                    Height = 100,
-                    TextAlign = ContentAlignment.MiddleCenter,
-                    Font = new Font("Segoe UI", 32, FontStyle.Regular),
-                    ForeColor = Color.White
-                };
-
-                panel.Controls.Add(text);
-                panel.Controls.Add(logo);
-
-                form.Controls.Add(panel);
-
-                noConnectionsBox = panel;
+                form.Controls.Add(searchingBox);
             });
         }
 
-        public void HideNoConnections()
+        public void HideSearching()
         {
             form.Invoke(() =>
             {
-                // Already hidden
-                if (noConnectionsBox == null)
-                    return;
-
-                form.Controls.Remove(noConnectionsBox);
-                noConnectionsBox.Dispose();
-                noConnectionsBox = null;
+                form.Controls.Remove(searchingBox);
             });
         }
 
@@ -277,7 +239,7 @@ namespace Spiek.UI
             form.Controls.Add(deviceWindow);
             deviceWindow.Show();
 
-            HideNoConnections();
+            HideSearching();
             RecalculateLayout();
             deviceWindow.ApplyVisualFormat();
 
@@ -292,7 +254,7 @@ namespace Spiek.UI
                     deviceWindow.Close();
 
                     if (DeviceWindows.Count == 0)
-                        ShowNoConnections();
+                        ShowSearching();
                 });
             };
 

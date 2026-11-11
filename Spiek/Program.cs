@@ -1,5 +1,6 @@
 ﻿using Spiek.Devices;
 using Spiek.UI;
+using Spiek.UI.Update;
 using System.Diagnostics;
 
 public class Program
@@ -27,6 +28,7 @@ public class Program
     public static QuestDiscover? questDiscover;
     public static void Main(string[] args)
     {
+        Theme.LoadFont();
         questDiscover = new QuestDiscover();
 
         questDiscover.OnMessage += (result) =>
