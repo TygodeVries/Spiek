@@ -65,21 +65,41 @@ public class Searching : Control
             for (int i = 0; i < bubbles.Length; i++)
             {
                 Bubble bubble = bubbles[i];
-                Rectangle bubbleRect = new Rectangle(bubble.x, bubble.y, (int)bubble.size, (int)bubble.size);
+
+                float elapsed = (float)time.Elapsed.TotalSeconds;
+
+                Rectangle bubbleRect = new Rectangle(
+                    bubble.x,
+                    bubble.y,
+                    (int)bubble.size,
+                    (int)bubble.size
+                );
 
                 if (bubble.isFull)
                     g.FillEllipse(brush, bubbleRect);
                 else
                 {
                     if (bubble.isLogo)
-                    {
                         g.DrawImage(Theme.DafLogo, bubbleRect);
-                    }
+
                     g.DrawEllipse(pen, bubbleRect);
                 }
 
-                bubble.y = Height - (((int)(time.Elapsed.TotalMilliseconds / 20) + bubble.yOffset) % (Height + (int)bubble.size));
-                bubble.x = bubble.xOffset + (int)(MathF.Cos((float)time.Elapsed.TotalSeconds + bubble.phase) * 100);
+                // Floating movement
+                float speed = 15f + (bubble.phase * 3f);
+
+                float floatY = MathF.Sin((elapsed * 1.2f) + bubble.phase) * 12f;
+                float floatX = MathF.Sin((elapsed * 0.8f) + bubble.phase) * 25f;
+
+                // Continuous upward movement
+                float baseY = Height -
+                    (((elapsed * speed) + bubble.yOffset) % (Height + bubble.size));
+
+                bubble.y = (int)(baseY + floatY);
+
+                // Gentle horizontal drifting
+                bubble.x = bubble.xOffset +
+                    (int)((MathF.Cos((elapsed * 0.6f) + bubble.phase) * 60f) + floatX);
             }
         }
 
@@ -141,37 +161,6 @@ public class Searching : Control
                     regions[i].Dispose();
                 }
             }
-        }
-
-
-
-        return;
-        int logoHeight = 400;
-        int logoWidth = (int)(logoHeight * 1.82f);
-
-        float logoX = (this.ClientSize.Width - logoWidth) / 2f;
-        float logoY = (this.ClientSize.Height / 2f) - 150f;
-
-        g.DrawImage(
-            Theme.SpiekLogo,
-            new RectangleF(logoX, logoY, logoWidth, logoHeight)
-        );
-    }
-
-    protected override void OnResize(EventArgs e)
-    {
-        for (int i = 0; i < bubbles.Length; i++)
-        {
-            bubbles[i] = new Bubble()
-            {
-                x = Random.Shared.Next(0, Width),
-                phase = Random.Shared.Next(0, 1000) / 100f,
-                yOffset = Random.Shared.Next(0, Height),
-                xOffset = Random.Shared.Next(0, Width),
-                isFull = Random.Shared.Next(0, 2) == 0,
-                isLogo = Random.Shared.Next(0, 4) == 0,
-                size = Random.Shared.Next(60, 200)
-            };
         }
     }
 }
