@@ -6,7 +6,7 @@ namespace Spiek.Utils
     public class AppUtils
     {
         public static async Task MoveFileToDropbox(
-     QuestVRDevice quest,
+     MetaQuest quest,
      string devicePath)
         {
             if (Settings.Instance.DropboxPath == "none")
@@ -20,7 +20,7 @@ namespace Spiek.Utils
             var localTempDirectory = Path.Combine(
                 Directory.GetCurrentDirectory(),
                 "downloads",
-                quest.UniqueAddressId());
+                quest.GetUniqueAddress());
 
             Directory.CreateDirectory(localTempDirectory);
 
@@ -45,7 +45,7 @@ namespace Spiek.Utils
                 $"pull \"{devicePath}\" \"{localPath}\"",
                 dontDisconnectIfIncorrect: false);
 
-            if (!quest.LastCommandSuccess())
+            if (!quest.IsLastCommandSuccess())
             {
                 MainForm.GetInstance().ErrorAlert(
                     $"Failed to download directory: {msg}");

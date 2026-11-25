@@ -14,7 +14,7 @@ namespace Spiek.UI
 
         public List<DeviceWindow> DeviceWindows { get; private set; } = new List<DeviceWindow>();
         public OverlayWindow Overlay { get; private set; }
-        private List<VRDevice> devices = new List<VRDevice>();
+        private List<Headset> devices = new List<Headset>();
         private Form form;
 
         public MainForm()
@@ -109,6 +109,7 @@ namespace Spiek.UI
             updateTimer.Interval = 5000;
             updateTimer.Start();
 
+            Console.WriteLine($"Started to send out ping messages on network with an interval of {updateTimer.Interval}ms");
             Tick(null, EventArgs.Empty);
         }
 
@@ -117,12 +118,12 @@ namespace Spiek.UI
             Program.questDiscover?.Broadcast("SPIEK_PING");
         }
 
-        public VRDevice[] GetDevices()
+        public Headset[] GetDevices()
         {
             return devices.ToArray();
         }
 
-        public VRDevice? GetSelectedDevice()
+        public Headset? GetSelectedDevice()
         {
             if (SelectedWindow == null && devices.Count == 1)
                 return devices.First();
@@ -150,11 +151,11 @@ namespace Spiek.UI
 
         public void AddDummyDevice()
         {
-            AddDevice(new DummyDevice());
+            AddDevice(new DummyHeadset());
         }
         public void ManualUsbConnect()
         {
-            List<string>? devices = QuestVRDevice.GetUsbDevices();
+            List<string>? devices = MetaQuestUtilities.GetMetaQuestUsbDevices();
             if (devices == null)
             {
                 ErrorAlert("Could not get list of devices. adb might not have been found.");
@@ -169,7 +170,7 @@ namespace Spiek.UI
 
             if (devices.Count == 1)
             {
-                AddDevice(new QuestVRDevice(devices.First()));
+                AddDevice(new MetaQuest(devices.First()));
                 return;
             }
 
@@ -178,7 +179,7 @@ namespace Spiek.UI
             if (device == null)
                 return;
 
-            AddDevice(new QuestVRDevice(device));
+            AddDevice(new MetaQuest(device));
         }
 
 
@@ -191,23 +192,15 @@ namespace Spiek.UI
             });
         }
 
-        public void HideSearching()
+        public static event Action<Headset>? OnDeviceAdded;
+        public void AddDevice(Headset vrDevice)
         {
-            form.Invoke(() =>
-            {
-                form.Controls.Remove(searchingBox);
-            });
-        }
-
-
-        public void AddDevice(VRDevice vrDevice)
-        {
-            foreach (VRDevice other in devices)
+            foreach (Headset other in devices)
             {
                 if (other == null)
                     continue;
 
-                if (other.UniqueAddressId() == vrDevice.UniqueAddressId())
+                if (other.GetUniqueAddress() == vrDevice.GetUniqueAddress())
                 {
                     Console.WriteLine("[WARN] Device already connected");
                     return;
@@ -217,6 +210,8 @@ namespace Spiek.UI
             // Device connection can happen outside UI thread
             if (vrDevice.State != DeviceState.Connected)
                 vrDevice.Connect();
+
+            OnDeviceAdded?.Invoke(vrDevice);
 
             form.Invoke(() =>
             {
@@ -229,7 +224,7 @@ namespace Spiek.UI
             return form;
         }
 
-        private void AddDeviceWindow(VRDevice vrDevice)
+        private void AddDeviceWindow(Headset vrDevice)
         {
             devices.Add(vrDevice);
 
@@ -237,9 +232,10 @@ namespace Spiek.UI
             DeviceWindows.Add(deviceWindow);
 
             form.Controls.Add(deviceWindow);
+
+            deviceWindow.BringToFront();
             deviceWindow.Show();
 
-            HideSearching();
             RecalculateLayout();
             deviceWindow.ApplyVisualFormat();
 
@@ -252,9 +248,6 @@ namespace Spiek.UI
                     devices.Remove(vrDevice);
 
                     deviceWindow.Close();
-
-                    if (DeviceWindows.Count == 0)
-                        ShowSearching();
                 });
             };
 
@@ -268,7 +261,7 @@ namespace Spiek.UI
 
         public void ResetAndRecover()
         {
-            foreach (VRDevice device in devices)
+            foreach (Headset device in devices)
             {
                 device.Disconnect();
             }
@@ -315,28 +308,112 @@ namespace Spiek.UI
             return null;
         }
 
+
         public void RecalculateLayout()
         {
-            if (Overlay != null)
-            {
-                Overlay.Size = form.Size;
-                Overlay.Location = form.Location;
-            }
+            if (form.IsDisposed || !form.IsHandleCreated)
+                return;
 
             form.Invoke(() =>
             {
+                if (Overlay != null)
+                {
+                    Overlay.Size = form.Size;
+                    Overlay.Location = form.Location;
+                }
+
+                int offset = 50;
+
+                Size size = form.ClientSize - new Size(0, offset);
+
                 form.BackColor = Color.Black;
-                int i = 0;
+
+                // Only casting devices participate in the layout.
+                var activeWindows = DeviceWindows
+                    .Where(window => window.IsCasting())
+                    .ToList();
+
+                // Keep all parent controls alive and visible.
                 foreach (DeviceWindow window in DeviceWindows)
                 {
-                    Vector4 pos = GetWindowRect(i);
-                    window.Move((int)pos.X, (int)pos.Y, (int)pos.Z, (int)pos.W);
-                    i++;
+                    window.Visible = true;
+
+                    if (!activeWindows.Contains(window))
+                    {
+                        window.Move(0, 0, 0, 0);
+                    }
+                }
+
+                if (activeWindows.Count == 0)
+                {
+                    form.Refresh();
+                    return;
+                }
+
+                int count = activeWindows.Count;
+
+                int cols = SelectedWindow != null &&
+                           activeWindows.Contains(SelectedWindow)
+                    ? 1
+                    : (int)Math.Ceiling(Math.Sqrt(count));
+
+                int rows = SelectedWindow != null &&
+                           activeWindows.Contains(SelectedWindow)
+                    ? 1
+                    : (int)Math.Ceiling((double)count / cols);
+
+                if (SelectedWindow != null &&
+                    activeWindows.Contains(SelectedWindow))
+                {
+                    float selectedWidth = size.Width * 0.8f;
+                    float sideWidth = size.Width - selectedWidth;
+
+                    SelectedWindow.Move(
+                        0, offset,
+                        (int)selectedWidth,
+                        size.Height
+                    );
+
+                    var others = activeWindows
+                        .Where(x => x != SelectedWindow)
+                        .ToList();
+
+                    for (int i = 0; i < others.Count; i++)
+                    {
+                        float height = (float)size.Height /
+                                       others.Count;
+
+                        others[i].Move(
+                            (int)selectedWidth,
+                            (int)(i * height) + offset,
+                            (int)sideWidth,
+                            (int)height
+                        );
+                    }
+                }
+                else
+                {
+                    float cellWidth = (float)size.Width / cols;
+                    float cellHeight = (float)size.Height / rows;
+
+                    for (int i = 0; i < count; i++)
+                    {
+                        int row = i / cols;
+                        int col = i % cols;
+
+                        activeWindows[i].Move(
+                            (int)(col * cellWidth),
+                            (int)(row * cellHeight) + offset,
+                            (int)cellWidth,
+                            (int)cellHeight
+                        );
+                    }
                 }
 
                 form.Refresh();
             });
         }
+
 
         public Vector4 GetWindowRect(int index)
         {
@@ -403,7 +480,7 @@ namespace Spiek.UI
         public void ManualIpConnect()
         {
             string ip = AlertTextInput("Please enter the IP of the Meta Quest");
-            QuestVRDevice device = new QuestVRDevice(ip, 5555);
+            MetaQuest device = new MetaQuest(ip, 5555);
             AddDevice(device);
         }
 
@@ -532,51 +609,97 @@ namespace Spiek.UI
         }
 
 
+
         public string AlertTextInput(string text)
         {
             string inputResult = string.Empty;
 
             form.Invoke(() =>
             {
-                Form inputForm = new Form
+                using Form inputForm = new Form
                 {
                     Text = "Sπk",
-                    Size = new Size(350, 180),
+                    Size = new Size(420, 230),
                     StartPosition = FormStartPosition.CenterParent,
                     FormBorderStyle = FormBorderStyle.FixedDialog,
                     MaximizeBox = false,
-                    MinimizeBox = false
+                    MinimizeBox = false,
+                    ShowInTaskbar = false,
+                    BackColor = Color.FromArgb(28, 30, 38),
+                    ForeColor = Color.White,
+                    Font = new Font("Segoe UI", 10F),
+                };
+
+                Label header = new Label
+                {
+                    Text = "Enter a value",
+                    Font = new Font("Segoe UI Semibold", 15F),
+                    ForeColor = Color.White,
+                    Location = new Point(24, 18),
+                    AutoSize = true
                 };
 
                 Label label = new Label
                 {
                     Text = text,
-                    Dock = DockStyle.Top,
-                    Height = 40,
-                    TextAlign = ContentAlignment.MiddleCenter
+                    Font = new Font("Segoe UI", 9.5F),
+                    ForeColor = Color.FromArgb(180, 185, 200),
+                    Location = new Point(26, 62),
+                    Size = new Size(350, 35),
+                    AutoEllipsis = true
                 };
 
                 TextBox textBox = new TextBox
                 {
-                    Width = 280,
-                    Top = 45,
-                    Left = 28
+                    Location = new Point(26, 105),
+                    Size = new Size(350, 30),
+                    Font = new Font("Segoe UI", 11F),
+                    BackColor = Color.FromArgb(43, 46, 57),
+                    ForeColor = Color.White,
+                    BorderStyle = BorderStyle.FixedSingle
                 };
 
                 Button okButton = new Button
                 {
-                    Text = "OK",
+                    Text = "Continue",
                     DialogResult = DialogResult.OK,
-                    Width = 80,
-                    Top = 80,
-                    Left = 128
+                    Size = new Size(110, 36),
+                    Location = new Point(266, 155),
+                    FlatStyle = FlatStyle.Flat,
+                    BackColor = Color.FromArgb(105, 95, 230),
+                    ForeColor = Color.White,
+                    Font = new Font("Segoe UI Semibold", 9.5F),
+                    Cursor = Cursors.Hand
                 };
 
-                inputForm.AcceptButton = okButton;
+                okButton.FlatAppearance.BorderSize = 0;
+                okButton.FlatAppearance.MouseOverBackColor =
+                    Color.FromArgb(125, 115, 245);
 
+                Button cancelButton = new Button
+                {
+                    Text = "Cancel",
+                    DialogResult = DialogResult.Cancel,
+                    Size = new Size(100, 36),
+                    Location = new Point(155, 155),
+                    FlatStyle = FlatStyle.Flat,
+                    BackColor = Color.FromArgb(43, 46, 57),
+                    ForeColor = Color.FromArgb(190, 195, 210),
+                    Cursor = Cursors.Hand
+                };
+
+                cancelButton.FlatAppearance.BorderSize = 0;
+
+                inputForm.Controls.Add(header);
                 inputForm.Controls.Add(label);
                 inputForm.Controls.Add(textBox);
+                inputForm.Controls.Add(cancelButton);
                 inputForm.Controls.Add(okButton);
+
+                inputForm.AcceptButton = okButton;
+                inputForm.CancelButton = cancelButton;
+
+                inputForm.Shown += (_, _) => textBox.Focus();
 
                 if (inputForm.ShowDialog(form) == DialogResult.OK)
                 {
@@ -586,6 +709,7 @@ namespace Spiek.UI
 
             return inputResult;
         }
+
 
         public void Popup(string text)
         {

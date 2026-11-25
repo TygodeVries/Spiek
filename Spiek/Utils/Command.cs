@@ -7,8 +7,6 @@ public class Command
 {
     public static (string, bool) Run(string cmd, string args)
     {
-        Console.WriteLine($"-> {cmd} {args}");
-
         Process process = new Process();
         process.StartInfo.FileName = Solve(cmd);
         process.StartInfo.Arguments = args;

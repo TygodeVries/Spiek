@@ -1,11 +1,12 @@
 ﻿using Spiek.UI;
+using Spiek.UI.Update;
 using System.Net;
 using System.Net.Sockets;
 using System.Text;
 
 namespace Spiek.Devices
 {
-    public class QuestDiscover
+    public class MetaQuestDiscover
     {
         private UdpClient? broadcastClient;
         private const int Port = 9999;
@@ -26,7 +27,6 @@ namespace Spiek.Devices
 
         public void Broadcast(string message)
         {
-            Console.WriteLine($"Broadcasting Message: '{message}'");
 
             if (broadcastClient == null)
                 throw new Exception("No broadcast available.");
@@ -37,6 +37,8 @@ namespace Spiek.Devices
             IPEndPoint endpoint = new IPEndPoint(IPAddress.Broadcast, Port);
 
             broadcastClient.Send(payload, payload.Length, endpoint);
+
+            Searching.Pulse(Theme.AccentColor2);
         }
 
         public event Action<(string ip, string message)>? OnMessage;

@@ -24,40 +24,55 @@ public class Program
     }
 
     // #TODO make sure to have permission to listen on UDP: netsh advfirewall firewall add rule name="Quest Spiek UDP Bridge" dir=in action=allow protocol=UDP localport=
+    public static MetaQuestDiscover? questDiscover;
 
-    public static QuestDiscover? questDiscover;
+    [STAThread]
     public static void Main(string[] args)
     {
-        Theme.LoadFont();
-        questDiscover = new QuestDiscover();
-
-        questDiscover.OnMessage += (result) =>
-        {
-            Console.WriteLine(result.message);
-
-            string[] args = result.message.Split("_");
-
-            if (args[0] != "QUEST")
-                return;
-
-            if (args[1] != "DebugPort")
-                return;
-
-            QuestVRDevice questVRDevice = new QuestVRDevice(args[2]);
-            questVRDevice.ForceAddress(result.ip, int.Parse(args[3]));
-
-            Console.WriteLine($"A meta quest responded ({questVRDevice.Ip}:{questVRDevice.Port}) over network ping!");
-            MainForm.GetInstance().AddDevice(questVRDevice);
-        };
-
-        questDiscover.Start();
-
         Application.SetHighDpiMode(HighDpiMode.PerMonitorV2);
         Application.SetDefaultFont(new Font("Segoe UI", 9f));
         Application.EnableVisualStyles();
         Application.SetCompatibleTextRenderingDefault(false);
 
-        MainForm mainForm = new MainForm();
-        Console.ReadLine();
+        if (args.Length > 0 && args[0] == "--dummy")
+        {
+            Application.Run(new Form());
+
+            return;
+        }
+
+        Theme.LoadFont();
+        questDiscover = new MetaQuestDiscover();
+
+        questDiscover.OnMessage += (result) =>
+        {
+            Console.WriteLine($"[Network] {result}");
+
+            string[] args = result.message.Split("_");
+
+            if (args.Length < 4 ||
+                args[0] != "QUEST" ||
+                args[1] != "DebugPort")
+                return;
+
+            MetaQuest questVRDevice = new MetaQuest(args[2]);
+            questVRDevice.SetInternetAddress(result.ip, int.Parse(args[3]));
+
+            Console.WriteLine(
+                $"[Network] Discovered a Meta Quest device at {result.ip}");
+
+            MainForm.GetInstance().AddDevice(questVRDevice);
+        };
+
+        questDiscover.Start();
+
+        try
+        {
+            Application.Run(new MainForm().GetForm());
+        }
+        catch
+        {
+
+        }
     }
 }

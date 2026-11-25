@@ -15,7 +15,7 @@ namespace Spiek.Utils
 
             AddOption(toolStrip, "Actions/Power/Power-off All Devices", () => PoweroffAll());
             AddOption(toolStrip, "Actions/Power/Power-off Selected Device", () => PoweroffSelected());
-            AddOption(toolStrip, "Actions/Patch/Install Spiek on USB Connected Device", () => PatchUsb.Patch());
+            AddOption(toolStrip, "Actions/PatchUsbMetaQuest/Install", () => MetaQuestUtilities.PatchUsbMetaQuest());
             AddOption(toolStrip, "Actions/Settings/Change Selected Device Settings", () => ChangeSettings());
             AddOption(toolStrip, "Actions/Fix/Restart Casting", () => RestartCast());
             AddOption(toolStrip, "Actions/Fix/Restart Spiek", () => RestartSpiek());
@@ -37,9 +37,9 @@ namespace Spiek.Utils
 
         private static void RestartCast()
         {
-            foreach (VRDevice vrDevice in MainForm.GetInstance().GetDevices())
+            foreach (Headset vrDevice in MainForm.GetInstance().GetDevices())
             {
-                vrDevice.StopCast();
+                vrDevice.StopVideoStream();
             }
 
             // Close all casting windows
@@ -54,15 +54,15 @@ namespace Spiek.Utils
 
             Thread.Sleep(500);
 
-            foreach (VRDevice vrDevice in MainForm.GetInstance().GetDevices())
+            foreach (Headset vrDevice in MainForm.GetInstance().GetDevices())
             {
-                vrDevice.StartCast();
+                vrDevice.StartVideoStream();
             }
         }
 
         private static void ChangeSettings()
         {
-            VRDevice? device = MainForm.GetInstance().GetSelectedDevice();
+            Headset? device = MainForm.GetInstance().GetSelectedDevice();
 
             if (device == null)
             {
@@ -91,7 +91,7 @@ namespace Spiek.Utils
 
         private async static Task SculptVrMoveToDropbox()
         {
-            VRDevice? device = MainForm.GetInstance().GetSelectedDevice();
+            Headset? device = MainForm.GetInstance().GetSelectedDevice();
 
             if (device == null)
             {
@@ -99,7 +99,7 @@ namespace Spiek.Utils
                 return;
             }
 
-            if (device is not QuestVRDevice quest)
+            if (device is not MetaQuest quest)
             {
                 MainForm.GetInstance().ErrorAlert(
                     "This function is only available for the Meta Quest!");
@@ -137,7 +137,7 @@ namespace Spiek.Utils
         {
             if (MainForm.GetInstance().AlertConfirm("Are you sure you want to disable all devices?"))
             {
-                foreach (VRDevice device in MainForm.GetInstance().GetDevices())
+                foreach (Headset device in MainForm.GetInstance().GetDevices())
                 {
                     device.PowerDown();
                 }
@@ -146,7 +146,7 @@ namespace Spiek.Utils
 
         private static void PoweroffSelected()
         {
-            VRDevice? device = MainForm.GetInstance().GetSelectedDevice();
+            Headset? device = MainForm.GetInstance().GetSelectedDevice();
 
             if (device == null)
             {

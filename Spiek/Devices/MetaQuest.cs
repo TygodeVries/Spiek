@@ -5,179 +5,175 @@ using System.Text.RegularExpressions;
 
 namespace Spiek.Devices;
 
-public class QuestVRDevice : VRDevice
+public class MetaQuest : Headset
 {
-    public static List<string>? GetUsbDevices()
-    {
-        (string msg, bool success) = Command.Run("adb", $"devices");
+    private string? Serial;
+    private string? Ip;
+    private int? Port;
 
-        if (!success)
-        {
-            Console.WriteLine($"Could not get list of connected devices because {msg}");
-            return null;
-        }
-
-        string[] lines = msg.Split("\n"); // Split on enters.
-
-        int deviceCount = lines.Length - 3;
-
-        if (deviceCount == 0)
-        {
-            return new List<string>();
-        }
-
-        List<string> devices = new List<string>();
-        for (int i = 0; i < deviceCount; i++)
-        {
-            string line = lines[i + 1];
-
-            // Its an IP, not correct!
-            if (line.Contains('.'))
-            {
-                continue;
-            }
-
-            if (line == "not-found")
-            {
-                return new List<string>();
-            }
-
-            string[] args = line.Split('\t', StringSplitOptions.RemoveEmptyEntries);
-            string serial = args[0].Trim();
-            devices.Add(serial);
-        }
-
-        return devices;
-    }
-
-    public string? Serial { get; private set; }
-    public string? Ip { get; private set; }
-    public int? Port { get; private set; }
-
-
-    /// <summary>
-    /// Used for checking duplication.
-    /// </summary>
-    /// <returns></returns>
-    public override string UniqueAddressId()
-    {
-        if (Serial != null)
-            return Serial;
-
-        return $"{Ip}:{Port}";
-    }
-    public QuestVRDevice(string serial)
+    public MetaQuest(string serial)
     {
         this.Serial = serial;
     }
-
-    public QuestVRDevice(string ip, int port)
+    public MetaQuest(string ip, int port)
     {
         this.Ip = ip;
         this.Port = port;
     }
 
-    public void ForceAddress(string ip, int port)
+    public override string GetUniqueAddress()
+    {
+        if (Ip != null && Port != null)
+            return $"{Ip}:{Port}";
+
+        return Serial!; // Serial as fallback. Prio is IP
+    }
+
+    internal void SetInternetAddress(string ip, int port)
     {
         this.Ip = ip;
         this.Port = port;
     }
 
+    /// <summary>
+    /// Turn this device from a USB-wired connection to a network connection.
+    /// </summary>
+    /// <exception cref="Exception"></exception>
+    public bool SetupWirelessFromUsb()
+    {
+        Log("Attempting to connect over the internet to the USB-device...");
+        if (Serial == null)
+            throw new Exception("Both device serial and IP are unknown. The connection can not be made.");
+
+        // Get the networking info
+        (string msg, bool success) = Command.Run("adb", $"-s {Serial} shell ip route");
+
+        if (!success)
+        {
+            if (msg.Contains("not found"))
+            {
+                Log($"adb could not find the USB connected device {Serial}. Are you sure its still plugged in?");
+            }
+
+            Log($"Something went wrong connecting to {Serial} device. msg: '{msg}'");
+            return false;
+        }
+
+        string[] args = msg.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        Ip = args[8]; // Set the IP of the device
+
+        const int DEBUG_PORT = 5555;
+
+        // Open the android debugging over wifi
+        (msg, success) = Command.Run("adb", $"-s {Serial} tcpip {DEBUG_PORT}");
+        Port = DEBUG_PORT;
+
+        // Check again incase someone removes the USB half-way
+        if (!success)
+        {
+            if (msg.Contains("not found"))
+            {
+                Log($"adb could not find the USB connected device while setting DEBUG_PORT {Serial}. Are you sure its still plugged in?");
+            }
+
+            Log($"Something went wrong connecting to {Serial} device while setting DEBUG_PORT. msg: '{msg}'");
+            return false;
+        }
+
+        // Wait for connection to finalize.
+        Thread.Sleep(500);
+
+        return true;
+    }
+
+    /// <summary>
+    /// Connect over wifi to the device.
+    /// </summary>
     public override void Connect()
     {
         SetDeviceState(DeviceState.Connecting);
+        Log("Starting to connect over ADB...");
         string msg;
         bool success;
-        // If the IP is null, we first need to optain that.
+
+        // For USB connected devices, we need to optain an IP
         if (Ip == null)
         {
-            Console.WriteLine("IP is null...");
-            if (Serial == null)
-                throw new Exception("Both device serial and IP are unknown. The connection can not be made.");
-
-            (msg, success) = Command.Run("adb", $"-s {Serial} shell ip route");
-
-            if (!success)
-            {
-                if (msg.Contains("not found"))
-                {
-                    Fatal($"adb could not find the USB connected device {Serial}. Are you sure its still plugged in?");
-                    return;
-                }
-
-                Fatal($"Something went wrong connecting to {Serial} device. msg: '{msg}'");
-                return;
-            }
-
-            string[] args = msg.Split(' ', StringSplitOptions.RemoveEmptyEntries);
-            Ip = args[8];
-
-            const int DEBUG_PORT = 5555;
-
-            // Open the adb
-            (msg, success) = Command.Run("adb", $"-s {Serial} tcpip {DEBUG_PORT}");
-            Port = DEBUG_PORT;
-
-            // Check again incase someone removes the USB half-way
-            if (!success)
-            {
-                if (msg.Contains("not found"))
-                {
-                    Fatal($"adb could not find the USB connected device while setting DEBUG_PORT {Serial}. Are you sure its still plugged in?");
-                    return;
-                }
-
-                Fatal($"Something went wrong connecting to {Serial} device while setting DEBUG_PORT. msg: '{msg}'");
-                return;
-            }
-
-            // Wait for connection to finalize.
-            Thread.Sleep(500);
+            if (!SetupWirelessFromUsb())
+                OnConnectingFailed();
         }
 
-
-        // Connect
+        // Connect over net
         (msg, success) = Command.Run("adb", $"connect {Ip}:{Port}");
-        if (!success)
+
+        bool failedToConnect = !success || msg.Contains("cannot connect to") || msg.Contains("failed to connect");
+
+        if (failedToConnect)
         {
-            Fatal($"Failed to connect to device because: {msg}");
+            OnConnectingFailed();
             return;
         }
 
-        if (msg.Contains("cannot connect to"))
+        Log("Starting connection test...");
+        if (TestConnectionState())
         {
-            Fatal(msg);
-            return;
-        }
-
-        if (msg.Contains("failed to connect"))
-        {
-            Fatal(msg);
-            return;
-        }
-
-        Thread.Sleep(500);
-
-        SetDeviceState(DeviceState.Connected);
-
-        bool enabled = IsScreenEnabled();
-        Console.WriteLine(enabled);
-        if (!enabled)
-        {
-            Console.WriteLine($"[!] Connected with {GetAddress()} but the screen is not enabled.");
+            SetDeviceState(DeviceState.Connected);
         }
     }
 
-    private readonly object castLock = new object();
-    private bool startingCast = false;
-    public override void StartCast()
+    private bool TestConnectionState()
     {
-        lock (castLock)
+        // Test the connection
+        (string msg, bool success) = Command.Run("adb", $"-s {GetUniqueAddress()} shell dumpsys power");
+        if (!success || msg.Contains("error"))
         {
-            if (startingCast || cast != null)
+            OnConnectingFailed();
+            return false;
+        }
+
+        return true;
+    }
+
+    private void OnConnectingFailed()
+    {
+        Log("Connecting Failed, running automatic diagnosis...");
+        SetDeviceState(DeviceState.Error);
+
+        if (Port == null || Ip == null)
+        {
+            Log($"Error caused by: Missing internet info: {Ip}:{Port}");
+            return;
+        }
+
+        Log("Error caused by: Adb refused by headset, required to re-pair");
+
+        if (MainForm.GetInstance().AlertConfirm("The headset did not accept the connection, do you want to pair again?"))
+        {
+            string code = MainForm.GetInstance().AlertTextInput($"The headset at address {GetUniqueAddress()} requires to be paired. Please enter the pair code from the developer settings.");
+            (string result, bool success) = Command.Run("adb", $"pair {Ip}:{Port} {code}");
+
+            Log(result);
+            MainForm.GetInstance().InfoAlert(result);
+        }
+        else
+        {
+            Log("Re-pair skipped.");
+        }
+    }
+
+    private bool isStartingVideoStream = false;
+    private readonly object videoStreamThreadLock = new object();
+    public override void StartVideoStream()
+    {
+        Log("Starting Video Stream.");
+
+        // Make sure we don't start streaming twice.
+        lock (videoStreamThreadLock)
+        {
+            if (isStartingVideoStream || cast != null)
                 return;
 
-            startingCast = true;
+            isStartingVideoStream = true;
         }
 
         Thread thr = new Thread(() =>
@@ -186,12 +182,9 @@ public class QuestVRDevice : VRDevice
 
             try
             {
-                Console.WriteLine("Starting Cast...");
-
                 if (State != DeviceState.Connected)
                 {
-                    Console.WriteLine(
-                        "Cannot start stream if the device is not connected.");
+                    Log("Cannot start stream if the device is not connected.");
                     return;
                 }
 
@@ -199,13 +192,11 @@ public class QuestVRDevice : VRDevice
 
                 if (battery != -1 && battery <= 20)
                 {
-                    MainForm.GetInstance().InfoAlert(
-                        "Stream might not function since battery level is below 20%.");
+                    Log("Stream might not function since battery level is below 20%.");
                 }
 
-                Console.WriteLine($"Battery is {battery}.");
 
-                var size = GetCrop();
+                var size = GetVideoCrop();
 
                 if (size == null)
                 {
@@ -216,24 +207,23 @@ public class QuestVRDevice : VRDevice
                 }
 
                 string args = Settings.Instance.SrcpyLaunchArguments
-                    .Replace("%addr%", GetAddress())
+                    .Replace("%addr%", GetUniqueAddress())
                     .Replace("%width%", size.Value.width.ToString())
                     .Replace("%height%", size.Value.height.ToString())
                     .Replace("%x%", size.Value.x.ToString())
                     .Replace("%y%", size.Value.y.ToString());
 
-                Console.WriteLine("Starting Casting Application...");
+                Log("Launching scrcpy...");
 
                 (prc, string msg) =
                     Command.RunGetPrc("programs/scrcpy.exe", args);
 
                 if (prc == null)
                 {
-                    Fatal("Failed to start cast because: " + msg);
+                    Log("Failed to start cast because: " + msg);
+                    Disconnect();
                     return;
                 }
-
-                Console.WriteLine("Waiting for window...");
 
                 IntPtr childHandle = IntPtr.Zero;
 
@@ -251,7 +241,7 @@ public class QuestVRDevice : VRDevice
 
                 if (childHandle == IntPtr.Zero)
                 {
-                    Console.WriteLine("Casting window did not appear in time. Terminating scrcpy.");
+                    Log("Casting window did not appear in time. Terminating scrcpy.");
 
                     try
                     {
@@ -267,24 +257,24 @@ public class QuestVRDevice : VRDevice
                             "Failed to terminate scrcpy: " + e.Message);
                     }
 
-                    Fatal("Could not obtain casting window. scrcpy did not open a window.");
+                    Log("Could not obtain casting window. scrcpy did not open a window.");
+                    Disconnect();
                     return;
                 }
 
-                lock (castLock)
+                lock (videoStreamThreadLock)
                 {
                     cast = prc;
                     prc = null;
                 }
 
-                Console.WriteLine("Window found!");
+                Log("Streaming Window Found!");
 
                 RunCastStarted(cast);
             }
             catch (Exception e)
             {
-                MainForm.GetInstance().ErrorAlert(
-                    "Failed to start casting: " + e);
+                Log("Failed to start casting: " + e);
             }
             finally
             {
@@ -309,9 +299,9 @@ public class QuestVRDevice : VRDevice
                     }
                 }
 
-                lock (castLock)
+                lock (videoStreamThreadLock)
                 {
-                    startingCast = false;
+                    isStartingVideoStream = false;
                 }
             }
         });
@@ -333,17 +323,15 @@ public class QuestVRDevice : VRDevice
         }
     }
 
-    public override void StopCast()
+    public override void StopVideoStream()
     {
         cast?.Close();
+        cast = null;
 
-        if (IsCasting())
-        {
-            cast = null;
-        }
+        Log("Video Stream Stopped");
     }
 
-    public bool ErrorIfNotConnected(string msg)
+    private bool ErrorIfNotConnected(string msg)
     {
         if (State != DeviceState.Connected)
         {
@@ -357,23 +345,13 @@ public class QuestVRDevice : VRDevice
         return false;
     }
 
-    public string GetAddress()
-    {
-        if (Ip == null && Serial == null)
-            throw new NullReferenceException("Both IP and Serial of device is unknown.");
-
-        if (Ip == null)
-            return Serial!;
-        return $"{Ip}:{Port}";
-    }
-
     public string? SendCommand(string command, bool bypassConnection = false, bool dontDisconnectIfIncorrect = false)
     {
         if (!bypassConnection)
             ErrorIfNotConnected("Can not send commands to this device if its not connected.");
 
-        (string msg, bool success) = Command.Run("adb", $"-s {GetAddress()} {command}");
-        last = success;
+        (string msg, bool success) = Command.Run("adb", $"-s {GetUniqueAddress()} {command}");
+        lastCommandSuccess = success;
 
         if (!success && !dontDisconnectIfIncorrect)
         {
@@ -386,8 +364,8 @@ public class QuestVRDevice : VRDevice
 
     public (string msg, bool success) SendCommand(string command, int i = 0)
     {
-        (string msg, bool success) = Command.Run("adb", $"-s {GetAddress()} {command}");
-        last = success;
+        (string msg, bool success) = Command.Run("adb", $"-s {GetUniqueAddress()} {command}");
+        lastCommandSuccess = success;
 
         return (msg, success);
     }
@@ -397,8 +375,8 @@ public class QuestVRDevice : VRDevice
         if (!bypassConnection)
             ErrorIfNotConnected("Can not send commands to this device if its not connected.");
 
-        (string msg, bool success) = await Command.RunAsync("adb", $"-s {GetAddress()} {command}");
-        last = success;
+        (string msg, bool success) = await Command.RunAsync("adb", $"-s {GetUniqueAddress()} {command}");
+        lastCommandSuccess = success;
 
         if (!success && !dontDisconnectIfIncorrect)
         {
@@ -409,10 +387,10 @@ public class QuestVRDevice : VRDevice
         return msg;
     }
 
-    private bool last = false;
-    public bool LastCommandSuccess()
+    private bool lastCommandSuccess = false;
+    internal bool IsLastCommandSuccess()
     {
-        return last;
+        return lastCommandSuccess;
     }
 
     public override int GetBatteryLevel()
@@ -428,14 +406,14 @@ public class QuestVRDevice : VRDevice
         return level;
     }
 
-    public (int x, int y, int width, int height)? GetCrop()
+    public (int x, int y, int width, int height)? GetVideoCrop()
     {
         if (ErrorIfNotConnected("The device has to be connected to get its display resolution."))
         {
             return null;
         }
 
-        (string msg, bool success) = Command.Run("scrcpy", $"--list-displays -s {GetAddress()}");
+        (string msg, bool success) = Command.Run("scrcpy", $"--list-displays -s {GetUniqueAddress()}");
         if (!success)
         {
             return null;
@@ -474,27 +452,6 @@ public class QuestVRDevice : VRDevice
         return null;
     }
 
-
-    public string? GetMacAddress()
-    {
-        if (ErrorIfNotConnected("The device has to be connected to get its MAC address."))
-        {
-            return null;
-        }
-
-        string? result = SendCommand("shell ip addr show wlan0", false);
-        if (string.IsNullOrEmpty(result))
-            return null;
-
-        Match match = Regex.Match(
-            result,
-            @"([0-9A-Fa-f]{2}:){5}[0-9A-Fa-f]{2}",
-            RegexOptions.IgnoreCase
-        );
-
-        return match.Success ? match.Value : null;
-    }
-
     public override bool IsScreenEnabled()
     {
         string? result = SendCommand("shell dumpsys power", false);
@@ -524,10 +481,5 @@ public class QuestVRDevice : VRDevice
     public override void PowerDown()
     {
         SendCommand("shell reboot -p", false);
-    }
-
-    public override string[] GetApps()
-    {
-        throw new NotImplementedException();
     }
 }

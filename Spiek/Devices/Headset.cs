@@ -3,13 +3,17 @@ using System.Diagnostics;
 
 namespace Spiek.Devices;
 
-public abstract class VRDevice
+public abstract class Headset
 {
-    public abstract string UniqueAddressId();
+    public abstract string GetUniqueAddress();
 
     public DeviceState State { get; private set; }
     public void SetDeviceState(DeviceState newState)
     {
+        Console.ForegroundColor = ConsoleColor.Yellow;
+        Log($"changed state {State} -> {newState}.");
+        Console.ForegroundColor = ConsoleColor.White;
+
         State = newState;
         OnDeviceStateChange?.Invoke();
     }
@@ -22,26 +26,17 @@ public abstract class VRDevice
 
     public abstract string GetDeviceSerial();
     public abstract void Connect();
-    public abstract void StartCast();
+    public abstract void StartVideoStream();
     public abstract bool IsScreenEnabled();
     public abstract void PowerDown();
 
-    public void Fatal(string msg)
-    {
-        SetDeviceState(DeviceState.Error);
-        OnFatal?.Invoke(msg);
-    }
-
-    public abstract string[] GetApps();
-
-    public event Action<string>? OnFatal;
     public event Action? OnDisconnect;
 
-    public abstract void StopCast();
+    public abstract void StopVideoStream();
     public abstract bool IsCasting();
     public void Disconnect()
     {
-        Console.WriteLine("AHHHH I disconnected");
+        Log("Device Disconnected.");
         SetDeviceState(DeviceState.Disconnected);
         OnDisconnect?.Invoke();
     }
@@ -66,6 +61,11 @@ public abstract class VRDevice
         }
 
         return info;
+    }
+
+    public void Log(string msg)
+    {
+        Console.WriteLine($"{GetUniqueAddress()} -> {msg}");
     }
 }
 

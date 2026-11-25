@@ -1,74 +1,89 @@
-﻿using System.Drawing.Drawing2D;
+﻿
+using System.Drawing.Drawing2D;
 
 public class RoundedLabel : Label
 {
-    public Color ChipColor { get; set; } = Color.FromArgb(40, 44, 52);
+    public Color ChipColor { get; set; } = Color.FromArgb(75, 105, 155);
 
-    // Thickness of the outer border in pixels.
-    public float BorderThickness { get; set; } = 4f;
-
-    // How much the border is desaturated.
-    public float BorderDesaturation { get; set; } = 0.35f;
+    public float CornerHighlight { get; set; } = 0.22f;
 
     public RoundedLabel()
     {
         BackColor = Color.Transparent;
-        ForeColor = Color.WhiteSmoke;
+        ForeColor = Color.White;
         TextAlign = ContentAlignment.MiddleCenter;
 
         AutoSize = false;
         DoubleBuffered = true;
-        Padding = new Padding(10, 3, 10, 3);
-        MinimumSize = new Size(48, 28);
+        Padding = new Padding(12, 4, 12, 4);
+        MinimumSize = new Size(48, 30);
     }
 
     protected override void OnPaint(PaintEventArgs e)
     {
-        Color borderColor = ChipColor;
-
-        // A muted, lighter version of the chip color.
-        Color bodyColor = DesaturateColor(
-            ControlPaint.Light(ChipColor, 0.18f),
-            BorderDesaturation
-        );
-
         e.Graphics.SmoothingMode = SmoothingMode.AntiAlias;
         e.Graphics.PixelOffsetMode = PixelOffsetMode.HighQuality;
 
-        float thickness = Math.Max(0f, BorderThickness);
-        float inset = (thickness / 2f) + 0.5f;
+        float inset = 2f;
 
         var rect = new RectangleF(
             inset,
             inset,
-            Width - (2f * inset) - 1f,
-            Height - (2f * inset) - 1f
+            Width - (inset * 2) - 1,
+            Height - (inset * 2) - 1
         );
 
         if (rect.Width <= 0 || rect.Height <= 0)
             return;
 
-        // A pill-shaped chip with fully rounded ends.
         using var path = CreatePillPath(rect);
 
-        // Slightly darker interior keeps the thick border distinct.
-        using (var fillBrush = new SolidBrush(bodyColor))
+        // Soft shadow underneath the bubble.
+        using (var shadowPath = CreatePillPath(
+            new RectangleF(rect.X, rect.Y + 2f,
+                rect.Width, rect.Height)))
+        using (var shadowBrush = new SolidBrush(
+            Color.FromArgb(45, 0, 0, 0)))
         {
-            e.Graphics.FillPath(fillBrush, path);
+            e.Graphics.FillPath(shadowBrush, shadowPath);
         }
 
-        if (thickness > 0)
-        {
-            using var borderPen = new Pen(borderColor, thickness)
-            {
-                LineJoin = LineJoin.Round,
-                Alignment = PenAlignment.Center
-            };
+        // Main bubble gradient.
+        Color topColor = ControlPaint.Light(ChipColor, 0.28f);
+        Color bottomColor = ControlPaint.Dark(ChipColor, 0.08f);
 
-            e.Graphics.DrawPath(borderPen, path);
+        using (var gradient = new LinearGradientBrush(
+            rect,
+            topColor,
+            bottomColor,
+            LinearGradientMode.Vertical))
+        {
+            e.Graphics.FillPath(gradient, path);
         }
 
-        // Draw text last so it remains crisp and readable.
+        // Soft glossy highlight in the upper portion.
+        float highlightHeight = rect.Height * 0.48f;
+
+        var highlightRect = new RectangleF(
+            rect.X + 2f,
+            rect.Y + 1f,
+            rect.Width - 4f,
+            highlightHeight
+        );
+
+        using (var highlightPath = CreatePillPath(highlightRect))
+        using (var highlightBrush = new LinearGradientBrush(
+            highlightRect,
+            Color.FromArgb(
+                (int)(CornerHighlight * 255),
+                Color.White),
+            Color.FromArgb(0, Color.White),
+            LinearGradientMode.Vertical))
+        {
+            e.Graphics.FillPath(highlightBrush, highlightPath);
+        }
+
+        // Text.
         TextRenderer.DrawText(
             e.Graphics,
             Text,
@@ -87,11 +102,6 @@ public class RoundedLabel : Label
     {
         var path = new GraphicsPath();
 
-        float diameter = Math.Min(rect.Height, rect.Width);
-
-        if (diameter <= 0)
-            return path;
-
         float radius = rect.Height;
 
         if (rect.Width <= rect.Height)
@@ -103,34 +113,15 @@ public class RoundedLabel : Label
         path.AddArc(
             rect.X, rect.Y,
             radius, radius,
-            90, 180
-        );
+            90, 180);
 
         path.AddArc(
             rect.Right - radius, rect.Y,
             radius, radius,
-            270, 180
-        );
+            270, 180);
 
         path.CloseFigure();
 
         return path;
-    }
-
-    private static Color DesaturateColor(Color color, float amount)
-    {
-        amount = Math.Clamp(amount, 0f, 1f);
-
-        int gray = (int)(
-            (0.299 * color.R) +
-            (0.587 * color.G) +
-            (0.114 * color.B)
-        );
-
-        int r = (int)(color.R + ((gray - color.R) * amount));
-        int g = (int)(color.G + ((gray - color.G) * amount));
-        int b = (int)(color.B + ((gray - color.B) * amount));
-
-        return Color.FromArgb(color.A, r, g, b);
     }
 }

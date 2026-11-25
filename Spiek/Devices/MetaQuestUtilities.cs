@@ -1,14 +1,58 @@
 ﻿using Spiek.UI;
+using Spiek.Utils;
 
 namespace Spiek.Devices;
 
-public class PatchUsb
+public class MetaQuestUtilities
 {
-    public static void Patch()
+    public static List<string>? GetMetaQuestUsbDevices()
+    {
+        (string msg, bool success) = Command.Run("adb", $"devices");
+
+        if (!success)
+        {
+            Console.WriteLine($"Could not get list of connected devices because {msg}");
+            return null;
+        }
+
+        string[] lines = msg.Split("\n"); // Split on enters.
+
+        int deviceCount = lines.Length - 3;
+
+        if (deviceCount == 0)
+        {
+            return new List<string>();
+        }
+
+        List<string> devices = new List<string>();
+        for (int i = 0; i < deviceCount; i++)
+        {
+            string line = lines[i + 1];
+
+            // Its an IP, not correct!
+            if (line.Contains('.'))
+            {
+                continue;
+            }
+
+            if (line == "not-found")
+            {
+                return new List<string>();
+            }
+
+            string[] args = line.Split('\t', StringSplitOptions.RemoveEmptyEntries);
+            string serial = args[0].Trim();
+            devices.Add(serial);
+        }
+
+        return devices;
+    }
+
+    public static void PatchUsbMetaQuest()
     {
         MainForm main = MainForm.GetInstance();
 
-        List<string>? devices = QuestVRDevice.GetUsbDevices();
+        List<string>? devices = GetMetaQuestUsbDevices();
         if (devices == null)
         {
             main.ErrorAlert("Could not get list of devices. adb might not have been found.");
@@ -23,7 +67,7 @@ public class PatchUsb
 
         if (devices.Count == 1)
         {
-            PatchOnDevice(new QuestVRDevice(devices.First()));
+            PatchOnDevice(new MetaQuest(devices.First()));
             return;
         }
 
@@ -32,12 +76,12 @@ public class PatchUsb
         if (device == null)
             return;
 
-        PatchOnDevice(new QuestVRDevice(device));
+        PatchOnDevice(new MetaQuest(device));
     }
 
-    private static void PatchOnDevice(QuestVRDevice questVRDevice)
+    private static void PatchOnDevice(MetaQuest questVRDevice)
     {
-        Console.WriteLine($"Patching quest device {questVRDevice.Serial}...");
+        Console.WriteLine($"Patching quest device {questVRDevice.GetUniqueAddress()}...");
 
         string apkPath = Path.Combine(
             AppContext.BaseDirectory,
@@ -85,7 +129,7 @@ public class PatchUsb
             return;
         }
 
-        MainForm.GetInstance().InfoAlert("Patch complete. Restart the headset for changes to take effect.");
+        MainForm.GetInstance().InfoAlert("PatchUsbMetaQuest complete. Restart the headset for changes to take effect.");
     }
 
 }
