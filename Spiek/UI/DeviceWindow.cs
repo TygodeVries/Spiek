@@ -26,30 +26,33 @@ public class DeviceWindow : Control
         Resize += (s, e) => SyncChilds();
         LocationChanged += (s, e) => SyncChilds();
 
-        ControlAdded += (sender, arg) =>
+        ParentChanged += (sender, args) =>
         {
-            if (BatteryLabel == null)
+            if (Parent != null)
             {
-                BatteryLabel = new RoundedLabel
+                if (BatteryLabel == null)
                 {
-                    Text = "??%",
-                    ChipColor = ColorTranslator.FromHtml(
-                        device.GetDeviceInfo().HexColor),
-                    ForeColor = Color.White,
-                    Font = new Font("Segoe UI", 30f),
-                    AutoSize = true,
-                    Visible = false
-                };
+                    BatteryLabel = new RoundedLabel
+                    {
+                        Text = "??%",
+                        ChipColor = ColorTranslator.FromHtml(device.GetDeviceInfo().HexColor),
+                        ForeColor = Color.White,
+                        Font = new Font("Segoe UI", 30f),
+                        AutoSize = true,
+                        Visible = false
+                    };
 
-                MainForm.GetInstance().Overlay.AddChip(
-                    BatteryLabel, this);
+                    MainForm.GetInstance().Overlay.AddChip(BatteryLabel, this);
+                }
             }
-        };
-
-        ControlRemoved += (sender, args) =>
-        {
-            if (BatteryLabel != null)
-                MainForm.GetInstance().Overlay.RemoveChip(BatteryLabel);
+            else
+            {
+                if (BatteryLabel != null)
+                {
+                    MainForm.GetInstance().Overlay.RemoveChip(BatteryLabel);
+                    BatteryLabel = null; // Optional: reset if it can be re-added later
+                }
+            }
         };
 
         UpdateUIElements();
