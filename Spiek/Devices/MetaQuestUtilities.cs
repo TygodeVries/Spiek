@@ -5,6 +5,36 @@ namespace Spiek.Devices;
 
 public class MetaQuestUtilities
 {
+    public static void PairMetaQuest()
+    {
+        if (MainForm.GetInstance().AlertConfirm("Do you need instructions on how to pair a headset?"))
+        {
+            MainForm.GetInstance().InfoAlert("Open the SPIEK app on the meta quest (In Unknown Sources).\nMake sure you are on the latest version.");
+            MainForm.GetInstance().InfoAlert("Press 'Android Settings'");
+            MainForm.GetInstance().InfoAlert("A dialog should appear, press 'Open'");
+            MainForm.GetInstance().InfoAlert("Scroll down to 'System' and open it");
+            MainForm.GetInstance().InfoAlert("Open 'Developer Options'");
+            MainForm.GetInstance().InfoAlert("Scroll down to 'Wireless Debugging' and press the TEXT (not the button) (make sure the switch stays enabled)");
+            MainForm.GetInstance().InfoAlert("Press 'Connect device with connection pin.");
+        }
+
+        string ipDebPort = MainForm.GetInstance().AlertTextInput("Enter the debugging IP and Port");
+        string ipPairPort = MainForm.GetInstance().AlertTextInput("Enter the pairing IP and Port");
+        string pin = MainForm.GetInstance().AlertTextInput("Enter the pin");
+
+        (string result, bool success) = Command.Run("adb", $"pair {ipPairPort} {pin}");
+
+        Console.WriteLine(result);
+        MainForm.GetInstance().InfoAlert(result);
+
+        (result, success) = Command.Run("adb", $"connect {ipDebPort}");
+
+        Console.WriteLine(result);
+        MainForm.GetInstance().InfoAlert(result);
+
+
+    }
+
     public static List<string>? GetMetaQuestUsbDevices()
     {
         (string msg, bool success) = Command.Run("adb", $"devices");
@@ -42,6 +72,14 @@ public class MetaQuestUtilities
 
             string[] args = line.Split('\t', StringSplitOptions.RemoveEmptyEntries);
             string serial = args[0].Trim();
+            string permission = args[1].Trim();
+
+            if (permission.Contains("unauthorized"))
+            {
+                MainForm.GetInstance().ErrorAlert("Device requires permission, please accept the dialog in the headset and try again.");
+            }
+
+
             devices.Add(serial);
         }
 

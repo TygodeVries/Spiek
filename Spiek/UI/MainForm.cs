@@ -49,7 +49,6 @@ namespace Spiek.UI
                 }
             };
 
-
             bool fullscreen = false;
 
             form.KeyPreview = true;
@@ -200,9 +199,18 @@ namespace Spiek.UI
                 if (other == null)
                     continue;
 
+                if (other is MetaQuest quest1 && vrDevice is MetaQuest quest2)
+                {
+                    if (quest1.Serial != null && quest2.Serial != null && quest1.Serial == quest2.Serial)
+                    {
+                        Console.WriteLine("[WARN] Device already connected (Same Serial)");
+                        return;
+                    }
+                }
+
                 if (other.GetUniqueAddress() == vrDevice.GetUniqueAddress())
                 {
-                    Console.WriteLine("[WARN] Device already connected");
+                    Console.WriteLine("[WARN] Device already connected (Same Address)");
                     return;
                 }
             }

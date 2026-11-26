@@ -48,6 +48,7 @@
                 MainForm.GetInstance().SetSelectedWindow(deviceWindow);
             };
             Controls.Add(chip);
+
         }
 
         public void RemoveChip(RoundedLabel chip)

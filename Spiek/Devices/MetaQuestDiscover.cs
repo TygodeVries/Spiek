@@ -38,7 +38,7 @@ namespace Spiek.Devices
 
             broadcastClient.Send(payload, payload.Length, endpoint);
 
-            Searching.Pulse(Theme.AccentColor2);
+            Searching.Pulse(Theme.AccentColorGreen);
         }
 
         public event Action<(string ip, string message)>? OnMessage;

@@ -25,10 +25,14 @@ public class Program
 
     // #TODO make sure to have permission to listen on UDP: netsh advfirewall firewall add rule name="Quest Spiek UDP Bridge" dir=in action=allow protocol=UDP localport=
     public static MetaQuestDiscover? questDiscover;
+    public static MetaQuestDiscoverLegacy? QuestDiscoverLegacy;
+
 
     [STAThread]
     public static void Main(string[] args)
     {
+        ProcessOptimizer.DisableBackgroundThrottling();
+
         Application.SetHighDpiMode(HighDpiMode.PerMonitorV2);
         Application.SetDefaultFont(new Font("Segoe UI", 9f));
         Application.EnableVisualStyles();
@@ -43,6 +47,29 @@ public class Program
 
         Theme.LoadFont();
         questDiscover = new MetaQuestDiscover();
+        QuestDiscoverLegacy = new MetaQuestDiscoverLegacy();
+
+        QuestDiscoverLegacy.QuestConnected += () =>
+        {
+            List<string>? serials = MetaQuestUtilities.GetMetaQuestUsbDevices();
+
+            if (serials == null)
+            {
+                MainForm.GetInstance().ErrorAlert("ADB failed to get a list of USB serials.");
+                return;
+            }
+
+            foreach (string serial in serials)
+            {
+                Console.WriteLine(
+                $"[USB] Discovered a Meta Quest serial on USB!");
+
+                MainForm.GetInstance().AddDevice(new MetaQuest(serial));
+            }
+        };
+
+
+        QuestDiscoverLegacy.Start();
 
         questDiscover.OnMessage += (result) =>
         {
@@ -59,7 +86,7 @@ public class Program
             questVRDevice.SetInternetAddress(result.ip, int.Parse(args[3]));
 
             Console.WriteLine(
-                $"[Network] Discovered a Meta Quest device at {result.ip}");
+                $"[Network] Discovered a Meta Quest serial at {result.ip}");
 
             MainForm.GetInstance().AddDevice(questVRDevice);
         };

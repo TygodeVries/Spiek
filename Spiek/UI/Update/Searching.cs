@@ -49,7 +49,6 @@ public class Searching : Control
 
     public void OnDeviceAdded(Headset device)
     {
-        return;
         DeviceInfo info = device.GetDeviceInfo();
 
         foreach (Bubble bubble in deviceBubbles)
@@ -68,7 +67,10 @@ public class Searching : Control
             device = device
         };
 
-        deviceBubbles.Add(bubble1);
+        lock (deviceBubbles)
+        {
+            deviceBubbles.Add(bubble1);
+        }
     }
 
     public List<Bubble> deviceBubbles;
@@ -114,48 +116,45 @@ public class Searching : Control
         foreach (Bubble bubble in smallBubbles)
         {
             Rectangle bubbleRect = new Rectangle((int)bubble.x, (int)bubble.y, (int)bubble.size, (int)bubble.size);
-            SolidBrush solidBrush = new SolidBrush(Theme.AccentColor2);
+            SolidBrush solidBrush = new SolidBrush(Theme.AccentColorGreen);
             g.FillEllipse(solidBrush, bubbleRect);
         }
 
         // Headset Bubbles
-
-        UpdateDeviceBubbles(deviceBubbles);
-
-
-        foreach (Bubble bubble in deviceBubbles)
+        lock (deviceBubbles)
         {
-            Rectangle bubbleRect = new Rectangle((int)bubble.x, (int)bubble.y, (int)bubble.size, (int)bubble.size);
-            Rectangle bubbleImageRect = new Rectangle((int)bubble.x + 50, (int)bubble.y + 50, (int)bubble.size - 100, (int)bubble.size - 100);
+            UpdateDeviceBubbles(deviceBubbles);
 
-
-
-            Color color = Theme.AccentColor;
-
-            if (bubble.device == null || bubble.device.State == Devices.DeviceState.Connected)
+            foreach (Bubble bubble in deviceBubbles)
             {
-                color = Theme.AccentColor;
+                Rectangle bubbleRect = new Rectangle((int)bubble.x, (int)bubble.y, (int)bubble.size, (int)bubble.size);
+                Rectangle bubbleImageRect = new Rectangle((int)bubble.x + 50, (int)bubble.y + 50, (int)bubble.size - 100, (int)bubble.size - 100);
+
+
+
+                Color color = Theme.AccentColorPurple;
+
+                if (bubble.device != null && bubble.device.State == Devices.DeviceState.Connected)
+                {
+                    color = Theme.AccentColorGreen;
+                }
+                else if (bubble.device != null && bubble.device.State == Devices.DeviceState.Disconnected)
+                {
+                    color = Color.Red;
+                }
+
+                SolidBrush solidBrush = new SolidBrush(color);
+                SolidBrush backBrush = new SolidBrush(Theme.MainColor);
+                Pen pen = new Pen(solidBrush);
+                pen.Width = 3;
+
+                DrawWigglyLine(g, new Point(bubbleRect.Location.X + (bubbleRect.Width / 2), bubbleRect.Location.Y + (bubbleRect.Height / 2)), new Point(Width / 2, Height / 2), 5, color);
+
+                g.FillEllipse(backBrush, bubbleRect);
+                g.DrawEllipse(pen, bubbleRect);
+
+                g.DrawImage(Theme.Headset, bubbleImageRect);
             }
-            else if (bubble.device.State == Devices.DeviceState.Disconnected)
-            {
-                color = Color.Red;
-            }
-            else
-            {
-                color = Theme.AccentColor2;
-            }
-
-            SolidBrush solidBrush = new SolidBrush(color);
-            SolidBrush backBrush = new SolidBrush(Theme.MainColor);
-            Pen pen = new Pen(solidBrush);
-            pen.Width = 3;
-
-            DrawWigglyLine(g, new Point(bubbleRect.Location.X + (bubbleRect.Width / 2), bubbleRect.Location.Y + (bubbleRect.Height / 2)), new Point(Width / 2, Height / 2), 5, color);
-
-            g.FillEllipse(backBrush, bubbleRect);
-            g.DrawEllipse(pen, bubbleRect);
-
-            g.DrawImage(Theme.Headset, bubbleImageRect);
         }
 
         string text = "Scanning for Devices...";
@@ -273,7 +272,7 @@ public class Searching : Control
     }
 
     private static float pulseAmount = 0f;
-    private static Color pulseColor = Theme.AccentColor;
+    private static Color pulseColor = Theme.AccentColorPurple;
     private static float pulseDecay = 2.5f;
     private static float lastPulseTime = 0f;
 

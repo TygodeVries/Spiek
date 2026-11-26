@@ -15,7 +15,8 @@ namespace Spiek.Utils
 
             AddOption(toolStrip, "Actions/Power/Power-off All Devices", () => PoweroffAll());
             AddOption(toolStrip, "Actions/Power/Power-off Selected Device", () => PoweroffSelected());
-            AddOption(toolStrip, "Actions/PatchUsbMetaQuest/Install", () => MetaQuestUtilities.PatchUsbMetaQuest());
+            AddOption(toolStrip, "Actions/Spiek/Install", () => MetaQuestUtilities.PatchUsbMetaQuest());
+            AddOption(toolStrip, "Actions/Spiek/Input Pairing Code", () => MetaQuestUtilities.PairMetaQuest());
             AddOption(toolStrip, "Actions/Settings/Change Selected Device Settings", () => ChangeSettings());
             AddOption(toolStrip, "Actions/Fix/Restart Casting", () => RestartCast());
             AddOption(toolStrip, "Actions/Fix/Restart Spiek", () => RestartSpiek());

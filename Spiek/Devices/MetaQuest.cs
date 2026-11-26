@@ -7,7 +7,7 @@ namespace Spiek.Devices;
 
 public class MetaQuest : Headset
 {
-    private string? Serial;
+    public string? Serial { get; private set; }
     private string? Ip;
     private int? Port;
 
@@ -39,7 +39,7 @@ public class MetaQuest : Headset
     /// Turn this device from a USB-wired connection to a network connection.
     /// </summary>
     /// <exception cref="Exception"></exception>
-    public bool SetupWirelessFromUsb()
+    public bool SetupLegacyWirelessFromUsb()
     {
         Log("Attempting to connect over the internet to the USB-device...");
         if (Serial == null)
@@ -48,7 +48,7 @@ public class MetaQuest : Headset
         // Get the networking info
         (string msg, bool success) = Command.Run("adb", $"-s {Serial} shell ip route");
 
-        if (!success)
+        if (!success || msg.Length < 2)
         {
             if (msg.Contains("not found"))
             {
@@ -99,7 +99,7 @@ public class MetaQuest : Headset
         // For USB connected devices, we need to optain an IP
         if (Ip == null)
         {
-            if (!SetupWirelessFromUsb())
+            if (!SetupLegacyWirelessFromUsb())
                 OnConnectingFailed();
         }
 
@@ -113,6 +113,8 @@ public class MetaQuest : Headset
             OnConnectingFailed();
             return;
         }
+
+        Thread.Sleep(1000); // Give some time before continuing
 
         Log("Starting connection test...");
         if (TestConnectionState())
@@ -149,11 +151,7 @@ public class MetaQuest : Headset
 
         if (MainForm.GetInstance().AlertConfirm("The headset did not accept the connection, do you want to pair again?"))
         {
-            string code = MainForm.GetInstance().AlertTextInput($"The headset at address {GetUniqueAddress()} requires to be paired. Please enter the pair code from the developer settings.");
-            (string result, bool success) = Command.Run("adb", $"pair {Ip}:{Port} {code}");
-
-            Log(result);
-            MainForm.GetInstance().InfoAlert(result);
+            MetaQuestUtilities.PairMetaQuest();
         }
         else
         {

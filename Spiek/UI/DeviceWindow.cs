@@ -156,7 +156,7 @@ public class DeviceWindow : Control
         {
             updateTimer = new Timer
             {
-                Interval = 10_000
+                Interval = 3_000
             };
 
             updateTimer.Tick += Tick;
@@ -181,6 +181,8 @@ public class DeviceWindow : Control
 
     private void Tick(object? sender, EventArgs e)
     {
+        Console.WriteLine($"Wakness: {Device.IsScreenEnabled()}");
+
         if (Device.IsScreenEnabled())
         {
             if (!Device.IsCasting())
